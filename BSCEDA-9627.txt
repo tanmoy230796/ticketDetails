@@ -1,0 +1,426 @@
+/*
+LMD (last mile delivery) - Dedicated Delivery contractor vans
+Tableau: https://tableau-entprod.walmart.com/#/workbooks/5195/views
+2023-10-27 by Adam Karafinski to recreate the data model for dedicated delivery vans.
+2023-11-06 by Adam Karafinski to change from DLMD to LMDTS because orders were missing.
+*/
+
+--
+
+/* step 1 - declare variables for incremental refresh. */
+declare run_time default if (extract (hour from current_time ('US/Central')) in (6, 10), true, false); /* scheduled refresh: allow run at 6am and 10am */
+--declare run_time default true; /* manual refresh */
+
+declare start_date_source date default current_date ('US/Central') - 25; /* incremental refresh */
+--declare start_date_source date default '2023-09-05'; /* full refresh - dedicated delivery go-live is 2023-09-07 */
+
+declare start_date_final date default current_date ('US/Central') - 20;/* incremental refresh */
+--declare start_date_final date default '2023-09-07';/* full refresh */
+
+declare start_date_joins date default current_date ('US/Central') - 50;/* incremental refresh */
+--declare start_date_joins date default '2023-08-25';/* full refresh */
+
+--
+
+/* step 2 - run below queries if this condition is met. No semicolon. */
+if run_time = true then
+
+--
+
+/* step 3 - copy of lmdts so it's only queried once */
+create temp table lmdts_temp as
+select
+  TRIP_ID
+  , ORDER_PCKUP_PNT_ID
+  , CARRIER_NM
+  , DRVR_USER_ID
+  , ESTMTD_MILE_BY_APPLN
+  , TRIP_START_TS_UTC
+  , TRIP_END_TS_UTC
+  , SRC_SALES_ORDER_NUM
+  , PO_NUM
+  , PKG_WT_QTY
+  , QTY
+  , DLVR_PKG_VOL_QTY
+  , DLVR_PKG_SIZE_CD
+  , OVERSIZED_ITEM_IND
+  , EXCPT_RSN_DESC
+  , CARRIER_STS_CD
+  , SRC_CRE_TS_UTC
+  , dma.CBSA
+from `wmt-edw-prod.WW_SUPPLY_CHAIN_DL_SECURE.LAST_MI_DLVR_TASK_CHNG_EVENT`  
+where SRC_CRE_DT >= start_date_source
+  and TRIP_ID in /* only trips that were (1) dispatched, (2) in store list, and (3) dedicated delivery. */
+    (
+      select distinct TRIP_ID
+      from `wmt-edw-prod.WW_SUPPLY_CHAIN_DL_SECURE.LAST_MI_DLVR_TASK_CHNG_EVENT`
+      where SRC_CRE_DT >= start_date_source
+        and CARRIER_STS_CD = 'DP'
+        and ORDER_PCKUP_PNT_ID in ('880', '3284', '5211', '2141') /* as of 2024-03-26 */
+        and CARRIER_NM = 'DEDICATED_DELIVERY'
+    )
+  and SRC_SALES_ORDER_NUM is not null
+  and PO_NUM is not null
+  and CARRIER_STS_CD in ('CR', 'EP', 'AP', 'DRIVER_SCANNED_AT_PICKUP', 'DP', 'ED', 'AD', 'DL', 'ENROUTE_TO_STORE', 'ER', 'RETURNED_TO_STORE', 'COMPLETED')
+group by 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17;
+
+--
+
+/* step 4 - limit the copy of lmdts to only trips and orders dispatched */
+create temp table lmdts as
+select lmdts_temp.*
+from lmdts_temp
+inner join /* inner join to return only orders dispatched. */
+    (
+      select distinct TRIP_ID, SRC_SALES_ORDER_NUM, PO_NUM
+      from lmdts_temp
+      where CARRIER_STS_CD = 'DP'
+    ) as dispatched
+  on dispatched.TRIP_ID = lmdts_temp.TRIP_ID
+  and dispatched.SRC_SALES_ORDER_NUM = lmdts_temp.SRC_SALES_ORDER_NUM
+  and dispatched.PO_NUM = lmdts_temp.PO_NUM;
+
+--
+
+/* step 5 - model the dispatcher data */
+create temp table data_model_1 as
+select
+  /* trip details */
+  trips.trip_id
+  , date (trips.trip_ts_utc, trips.store_time_zone) as trip_date
+  , trips.store_nbr
+  , trips.cbsa
+  , trips.store_time_zone
+  , case
+    when trips.store_nbr = 880 then 'Roadie (Ronald Road)'
+    when trips.store_nbr = 3284 then 'FDC (Frank Door)'
+    when trips.store_nbr in (5211, 2141) then 'NTG (Nolan Group)'
+    else 'N/A - Unknown'
+    end as carrier_name
+  , trips.van_id
+  , trips.estimated_miles
+  /* trip times */
+  , datetime (datetime_trunc (trips.trip_planned_start_ts_utc, second), trips.store_time_zone) as trip_planned_start_ts_lcl
+  , datetime (datetime_trunc (trips.trip_planned_end_ts_utc, second), trips.store_time_zone) as trip_planned_end_ts_lcl
+  , date_diff (trips.trip_planned_end_ts_utc, trips.trip_planned_start_ts_utc, second) as trip_planned_time_seconds
+  , datetime (datetime_trunc (trips.driver_request_ts_utc, second), trips.store_time_zone) as driver_request_ts_lcl
+  , datetime (datetime_trunc (trips.driver_enroute_to_pickup_ts_utc, second), trips.store_time_zone) as driver_enroute_to_pickup_ts_lcl
+  , case when time (datetime (datetime_trunc (trips.driver_enroute_to_pickup_ts_utc, second), trips.store_time_zone)) <= '07:45:00' then true else false end as on_time_enroute_to_store_tf
+  , datetime (datetime_trunc (trips.driver_at_pickup_ts_utc, second), trips.store_time_zone) as driver_at_pickup_ts_lcl
+  , case when time (datetime (datetime_trunc (trips.driver_at_pickup_ts_utc, second), trips.store_time_zone)) <= '08:00:00' then true else false end as on_time_arrival_tf
+  , datetime (datetime_trunc (trips.associate_dispense_complete_ts_utc, second), trips.store_time_zone) as associate_dispense_complete_ts_lcl
+  , datetime (datetime_trunc (trips.driver_load_start_ts_utc, second), trips.store_time_zone) as driver_load_start_ts_lcl
+  , date_diff (trips.driver_load_start_ts_utc, trips.driver_at_pickup_ts_utc, second) as driver_dwell_time_seconds
+  , datetime (datetime_trunc (trips.driver_load_end_ts_utc, second), trips.store_time_zone) as driver_load_end_ts_lcl
+  , date_diff (trips.driver_load_end_ts_utc, trips.driver_load_start_ts_utc, second) as driver_load_time_seconds
+  , datetime (datetime_trunc (trips.driver_depart_ts_utc, second), trips.store_time_zone) as driver_depart_ts_lcl
+  , case when time (datetime (datetime_trunc (trips.driver_depart_ts_utc, second), trips.store_time_zone)) <= '08:30:00' then true else false end as on_time_departure_tf
+  , datetime (datetime_trunc (trips.driver_last_delivery_ts_utc, second), trips.store_time_zone) as driver_last_delivery_ts_lcl
+  , date_diff (trips.driver_last_delivery_ts_utc, trips.driver_depart_ts_utc, second) as trip_actual_time_seconds
+  , datetime (datetime_trunc (trips.driver_enroute_to_return_ts_utc, second), trips.store_time_zone) as driver_enroute_to_return_ts_lcl
+  , datetime (datetime_trunc (trips.driver_at_return_ts_utc, second), trips.store_time_zone) as driver_at_return_ts_lcl
+  , datetime (datetime_trunc (trips.trip_marked_complete_ts_utc, second), trips.store_time_zone) as trip_marked_complete_ts_lcl
+  /* order times */
+  , orders.sales_order_num
+  , orders.po_num
+  , datetime (datetime_trunc (orders.driver_load_ts_utc, second), trips.store_time_zone) as driver_load_ts_lcl
+  , datetime (datetime_trunc (orders.driver_enroute_to_customer_ts_utc, second), trips.store_time_zone) as driver_enroute_to_customer_ts_lcl
+  , datetime (datetime_trunc (orders.driver_at_customer_ts_utc, second), trips.store_time_zone) as driver_at_customer_ts_lcl
+  , datetime (datetime_trunc (orders.driver_delivery_ts_utc, second), trips.store_time_zone) as driver_delivery_ts_lcl
+  , case when orders.driver_delivery_ts_utc is null then false else true end as delivered_tf
+  , case when orders.driver_delivery_ts_utc is null and orders.driver_at_customer_ts_utc is null then false else true end as delivery_attempt_tf
+  , date_diff (orders.driver_delivery_ts_utc, orders.driver_at_customer_ts_utc, second) as driver_doorstep_time_seconds
+  , datetime (datetime_trunc (orders.driver_undeliverable_ts_utc, second), trips.store_time_zone) as driver_undeliverable_ts_lcl
+  /* order details */
+  , orders.order_weight_lb
+  , orders.order_units
+  , orders.order_cubic_feet
+  , case when order_cubic_feet >= 32 or order_weight_lb >= 50 then true else false end as oversized_tf
+  , orders.oversized_lmdts
+  , orders.order_size_spark
+  , orders.po_reason_name
+from
+  (
+    select
+      a.*
+      , b.TZ_CD as store_time_zone
+    from
+      (
+        select
+          TRIP_ID as trip_id
+          , dma.CBSA
+          , max (case when CARRIER_STS_CD = 'DP' then SRC_CRE_TS_UTC end) as trip_ts_utc
+          , cast (max (case when CARRIER_STS_CD = 'DP' then ORDER_PCKUP_PNT_ID end) as int64) as store_nbr
+          , max (case when CARRIER_STS_CD = 'DP' then DRVR_USER_ID end) as van_id
+          , cast (round (max (case when CARRIER_STS_CD = 'DP' then ESTMTD_MILE_BY_APPLN end), 1) as numeric) as estimated_miles
+          , max (case when CARRIER_STS_CD = 'DP' then TRIP_START_TS_UTC end) as trip_planned_start_ts_utc
+          , max (case when CARRIER_STS_CD = 'DP' then TRIP_END_TS_UTC end) as trip_planned_end_ts_utc
+          , max (case when CARRIER_STS_CD = 'CR' then SRC_CRE_TS_UTC end) as driver_request_ts_utc
+          , max (case when CARRIER_STS_CD = 'EP' then SRC_CRE_TS_UTC end) as driver_enroute_to_pickup_ts_utc
+          , max (case when CARRIER_STS_CD = 'AP' then SRC_CRE_TS_UTC end) as driver_at_pickup_ts_utc
+          , max (case when CARRIER_STS_CD = 'DP' then SRC_CRE_TS_UTC end) as associate_dispense_complete_ts_utc
+          , min (case when CARRIER_STS_CD = 'DRIVER_SCANNED_AT_PICKUP' then SRC_CRE_TS_UTC end) as driver_load_start_ts_utc
+          , max (case when CARRIER_STS_CD = 'DRIVER_SCANNED_AT_PICKUP' then SRC_CRE_TS_UTC end) as driver_load_end_ts_utc
+          , min (case when CARRIER_STS_CD = 'ED' then SRC_CRE_TS_UTC end) as driver_depart_ts_utc
+          , max (case when CARRIER_STS_CD = 'DL' then SRC_CRE_TS_UTC end) as driver_last_delivery_ts_utc
+          , max (case when CARRIER_STS_CD = 'ENROUTE_TO_STORE' then SRC_CRE_TS_UTC end) as driver_enroute_to_return_ts_utc
+          , max (case when CARRIER_STS_CD = 'RETURNED_TO_STORE' then SRC_CRE_TS_UTC end) as driver_at_return_ts_utc
+          , min (case when CARRIER_STS_CD = 'COMPLETED' then SRC_CRE_TS_UTC end) as trip_marked_complete_ts_utc
+        from lmdts left join `wmt-tebi.common.DENS_Master_Alignment` dma ON lmdts.ORDER_PCKUP_PNT_ID=CAST(dma.Store_NUM AS STRING)
+        group by 1,2
+      ) as a
+    left join `wmt-edw-prod.WW_SUPPLY_CHAIN_DL_VM.LAST_MI_DLVR_STORE_HIST` as b
+        on b.STORE_NBR = a.store_nbr
+        and b.CURR_IND = 1
+  ) trips
+left join
+    (
+      select
+        lmdts.TRIP_ID as trip_id
+        , lmdts.SRC_SALES_ORDER_NUM as sales_order_num
+        , lmdts.PO_NUM as po_num
+        /* order times */
+        , max (case when CARRIER_STS_CD = 'DRIVER_SCANNED_AT_PICKUP' then SRC_CRE_TS_UTC end) as driver_load_ts_utc
+        , max (case when CARRIER_STS_CD = 'ED' then SRC_CRE_TS_UTC end) as driver_enroute_to_customer_ts_utc
+        , max (case when CARRIER_STS_CD = 'AD' then SRC_CRE_TS_UTC end) as driver_at_customer_ts_utc
+        , max (case when CARRIER_STS_CD = 'DL' then SRC_CRE_TS_UTC end) as driver_delivery_ts_utc
+        , max (case when CARRIER_STS_CD = 'ER' then SRC_CRE_TS_UTC end) as driver_undeliverable_ts_utc
+        /* order details */
+        , cast (round (max (case when CARRIER_STS_CD = 'DP' then PKG_WT_QTY end), 1) as numeric) as order_weight_lb
+        , max (case when CARRIER_STS_CD = 'DP' then QTY end) as order_units
+        , max (case when CARRIER_STS_CD = 'DP' then DLVR_PKG_VOL_QTY end) as order_cubic_feet
+        , max (case when CARRIER_STS_CD = 'DP' then OVERSIZED_ITEM_IND end) as oversized_lmdts
+        , max (case when CARRIER_STS_CD = 'DP' then DLVR_PKG_SIZE_CD end) as order_size_spark
+        , min (case when CARRIER_STS_CD = 'COMPLETED' then EXCPT_RSN_DESC end) as po_reason_name
+      from lmdts
+      group by 1, 2, 3
+    ) as orders
+  on orders.trip_id = trips.trip_id;
+
+--
+
+/* step 6 - joins to data outside of dispatcher */
+create temp table data_model_2 as
+select
+  data_model_1.*
+  , case when ip_orders.PO_NUM is not null then 'IP' else 'DFS' end as order_type
+  , coalesce (ip_packages.packages, 1) as packages
+  , cal.WM_YEAR_WK_NBR as trip_wm_week
+  , cal.CAL_MONTH_ABBR as trip_cal_month
+  , costs.trip_cost
+  , surveys.survery_complete_date
+  , surveys.cust_nps_rating
+  , surveys.cust_csat_rating
+  , otd.OEDD as customer_oedd
+  , otd.EARLY_ONTIME_LATE as customer_otd_flag
+  , otd.L1_REASON_CODE as customer_otd_reason
+  , datetime_trunc (current_datetime ('US/Central'), second) as refresh_ts_ct
+from data_model_1
+left join `wmt-tebi.FC_TO_LMD.internalized_parcel_orders` as ip_orders
+  on ip_orders.SALES_ORDER_NUM = data_model_1.sales_order_num
+  and ip_orders.PO_NUM = data_model_1.po_num
+  and ip_orders.ORDER_PLCD_DT_UTC >= start_date_joins
+left join 
+    (
+      select
+        sales_order_num
+        , po_num
+        , count (distinct pkg_asn) as packages
+      from `wmt-tebi.FC_TO_LMD.internalized_parcel_package_tracking`
+      where ORDER_PLCD_DT_UTC >= start_date_joins
+      group by 1, 2
+    ) as ip_packages
+  on ip_packages.sales_order_num = data_model_1.sales_order_num
+  and ip_packages.po_num = data_model_1.po_num
+left join `wmt-edw-prod.US_CORE_DIM_VM.CALENDAR_DIM` as cal
+  on cal.CALENDAR_DATE = data_model_1.trip_date
+  and cal.CALENDAR_DATE >= start_date_joins
+left join 
+    (
+      select
+        TRIP_ID
+        , cast (round (sum (FINAL_COST), 2) as numeric) as trip_cost
+      from `wmt-edw-sandbox.TRANSPORT_FINANCE.eComm_trans_finance_last_mile_delivery_table_prod`
+      where FULFMT_TYPE_CD != 'EASY RETURNS'
+        and DLVR_CARRIER_NM = 'DEDICATED_DELIVERY'
+        and RPT_DT >= start_date_joins
+      group by 1
+    ) as costs
+  on costs.TRIP_ID = data_model_1.trip_id
+left join
+    (
+      select
+        cast (SALES_ORDER_NBR as string) as SALES_ORDER_NBR
+        , SURVY_CMPLT_DT as survery_complete_date
+        , RECOMD_RATG_NBR as cust_nps_rating
+        , OVRL_SAT_RATG_NBR as cust_csat_rating
+      from `wmt-edw-prod.WW_SURVEY_RSPNS_DL_VM.GLS_SURVY_RSPNS`
+      where SURVY_CMPLT_DT >= start_date_joins
+    ) as surveys
+  on surveys.SALES_ORDER_NBR = data_model_1.sales_order_num
+left join
+    (
+      select
+        PONUMBER
+        , CATLG_ITEM_ID
+        , OEDD
+        , EARLY_ONTIME_LATE
+        , L1_REASON_CODE
+        , row_number () over (partition by PONUMBER order by OEDD asc) as ranking
+      from `wmt-outbound-bi.ONTIME_DELIVERY.ODS_ONTIME_DELIVERY`
+      where OEDD >= start_date_joins
+        group by 1, 2, 3, 4, 5
+    ) otd
+  on otd.PONUMBER = data_model_1.po_num
+  and otd.ranking = 1
+where data_model_1.trip_date between start_date_final and current_date ('US/Central') - 1; /* no same day trips */
+
+--
+
+/* step 7 - if full refresh then replace table */
+create or replace table `wmt-tebi.Tanmoy.dedicated_delivery_orders` as
+select *
+from data_model_2;
+
+--
+
+/* step 8 - delete rows to be re-inserted */
+-- delete `wmt-tebi.Tanmoy.dedicated_delivery_orders`
+-- where trip_date >= start_date_final;
+
+--
+
+/* step 9 - delete rows to be re-inserted */
+-- insert into `wmt-tebi.Tanmoy.dedicated_delivery_orders`
+-- select *
+-- from data_model_2;
+
+-- 
+
+/* step 10 - end if statement. */
+end if;
+
+--
+
+/* need to check that the correct number of trips are created. if less trips are created, then they need to be manually created with the for the cost portion.
+
+insert into `wmt-tebi.Tanmoy.dedicated_delivery_orders`
+values
+  (
+    'not-created-store-880-date-2023-10-21-driver-shipoom2'
+    , '2023-10-21'
+    , 880
+    , 'America/Chicago'
+    , 'Roadie (Ronald Road)'
+    , 'shipoom2@roadie.com'
+    , null
+    , null
+    , null
+    , null
+    , null
+    , null
+    , null
+    , null
+    , null
+    , null
+    , null
+    , null
+    , null
+    , null
+    , null
+    , null
+    , null
+    , null
+    , null
+    , null
+    , null
+    , null
+    , null
+    , null
+    , null
+    , null
+    , null
+    , null
+    , null
+    , null
+    , null
+    , null
+    , null
+    , null
+    , null
+    , null
+    , null
+    , null
+    , null
+    , 202339
+    , 'Oct'
+    , 395
+    , null
+    , null
+    , null
+    , null
+    , null
+    , null
+    , datetime_trunc (current_datetime ('US/Central'), second)
+  )
+  , (
+    'not-created-store-3284-date-2023-10-21-driver-sddriver2'
+    , '2023-10-21'
+    , 3284
+    , 'America/Chicago'
+    , 'Roadie (Ronald Road)'
+    , 'sddriver2@yahoo.com'
+    , null
+    , null
+    , null
+    , null
+    , null
+    , null
+    , null
+    , null
+    , null
+    , null
+    , null
+    , null
+    , null
+    , null
+    , null
+    , null
+    , null
+    , null
+    , null
+    , null
+    , null
+    , null
+    , null
+    , null
+    , null
+    , null
+    , null
+    , null
+    , null
+    , null
+    , null
+    , null
+    , null
+    , null
+    , null
+    , null
+    , null
+    , null
+    , null
+    , 202339
+    , 'Oct'
+    , 250
+    , null
+    , null
+    , null
+    , null
+    , null
+    , null
+    , datetime_trunc (current_datetime ('US/Central'), second)
+  )
+;
+*/
+
+/* end */

@@ -1,0 +1,709 @@
+--calander table
+
+CREATE OR REPLACE TABLE `wmt-tebi.Tanmoy.LMD_TIPPING_CAL` AS 
+(               
+  SELECT DISTINCT WTD.CAL_DT,RDT.WM_WK , rdt.WM_WK_BEG_DT, rdt.WM_WK_END_DT, RDT.WM_YR_DESC
+					FROM 
+					(
+					SELECT CDT.CAL_DT, WMK.WM_WK_ID, 
+						CASE WHEN WMK.WM_WK_NBR_OF_YR_NBR < 10
+								THEN EXTRACT(YEAR FROM CDT.WM_YR_BEG_DT) ||'0'||WMK.WM_WK_NBR_OF_YR_NBR
+								ELSE EXTRACT(YEAR FROM CDT.WM_YR_BEG_DT) ||WMK.WM_WK_NBR_OF_YR_NBR
+								END AS WM_WK
+						, cdt.WM_WK_BEG_DT
+						, cdt.WM_WK_END_DT
+                        , WM_YR_DESC
+					
+					
+					FROM `wmt-edw-prod.WW_CORE_DIM_DL_VM.CAL_DT` CDT 
+					INNER JOIN `wmt-edw-prod.WW_CORE_DIM_DL_VM.CAL_WM_WK` WMK 
+					ON CDT.WM_WK_ID=WMK.WM_WK_ID
+                    INNER join `wmt-edw-prod.WW_CORE_DIM_DL_VM.CAL_WM_YR` WMKY
+                    on CDT.WM_YR_ID=WMKY.WM_YR_ID
+					) RDT
+					INNER JOIN `wmt-edw-prod.WW_CORE_DIM_DL_VM.CAL_DT` WTD 
+					ON RDT.WM_WK_ID=WTD.WM_WK_ID AND WTD.CAL_DT<=RDT.CAL_DT
+                    
+	where RDT.CAL_DT<= DATE_SUB(CURRENT_DATE("US/Pacific"), INTERVAL 1 DAY)  
+);
+  
+
+-- Get delviered trips from Scheduled timestamp table 
+
+CREATE or replace TABLE `wmt-tebi.Tanmoy.LMD_TIPPING_DELIVERED_TRIPS` AS 
+(select store_id,
+a.sales_order_num, 
+a.po_num, 
+a.trip_id, 
+a.FIRST_ASSGN_CARRIER_NM,
+carrier,
+a.BILL_TO_CUST_ID,  
+DU_IND,
+ORG_TM_ZONE,
+BU, 
+CBSA, 
+REGION,
+OG_MKT_ID, 
+DOM,
+FULFMT_TYPE_Desc,
+BASKET,  
+Delivered_TS, 
+Delivery_DT,
+GIF_Delivered_TS,
+ORDER_PLACED_DT,
+ORDER_PLACED_TS, 
+a.Slot_From_TS, 
+Slot_To_TS,
+b.TIP_ELIG_IND,
+picker.picker_type_nm,
+last_mi_dl.COUR_RQ_TS_LCL,
+otp.OTP_NR,
+otp.OTP_DR,
+row_number() over (Partition by a.sales_order_num order by Delivered_TS) as order_random_num,
+row_number() over (Partition by a.po_num order by Delivered_TS) as po_random_num,
+count(a.po_num) over (PArtition by a.po_num) as po_delivery_count,
+count(a.sales_order_num) over (PArtition by a.sales_order_num) as order_delivery_count
+from `wmt-tebi.Scheduled.VOL_ROVR_final_Operation_TS_PO`  a
+left outer join
+(select src_sales_order_num, po_num, max(coalesce(TIP_ELIG_STS_IND,0)) as TIP_ELIG_IND
+from wmt-edw-prod.WW_SUPPLY_CHAIN_DL_VM.LAST_MI_DLVR_TASK_CHNG_EVENT
+where src_cre_dt >= '2022-01-01'
+group by 1,2) b on a.sales_order_num=b.src_sales_order_num and a.po_num=b.po_num
+--------
+LEFT JOIN (
+  select DISTINCT src_sales_order_num as sales_order_num, po_num, trip_id, upper(picker_type_nm) AS picker_type_nm,
+    AGE_RSTR_IND,
+    BATCH_ID,
+    CUST_DLVR_INSTR_TXT,
+    DLVR_PKG_SIZE_CD,
+    DLVR_PKG_VOL_QTY,
+    DLVR_PKG_VOL_UOM_CD,
+    DRVR_USER_ID,
+    MANL_DRVR_ASSGNMNT_IND,
+    MULT_CAR_IND,
+    PKG_RCPT_DRVR_TS,
+    PKG_WT_QTY,
+    PKG_WT_UOM,
+    TEMPR_CNTRL_ITEM_IND
+  from `wmt-edw-prod.WW_SUPPLY_CHAIN_DL_VM.LAST_MI_DLVR_TASK_CHNG_EVENT` 
+  where SRC_CRE_DT >='2021-12-01'
+  and UPPER(data_src_cd) = 'DISPATCHER'
+) picker
+ON picker.sales_order_num = a.sales_order_num
+AND picker.po_num = a.po_num
+AND picker.trip_id = a.TRIP_ID
+AND cast(picker.AGE_RSTR_IND AS STRING)=CAST(a.AGE_RSTR_IND AS STRING)
+AND picker.BATCH_ID=a.BATCH_ID
+AND picker.CUST_DLVR_INSTR_TXT=a.CUST_DLVR_INSTR_TXT
+AND picker.DLVR_PKG_SIZE_CD=a.DLVR_PKG_SIZE_CD
+AND picker.DLVR_PKG_VOL_QTY=a.DLVR_PKG_VOL_QTY
+AND picker.DLVR_PKG_VOL_UOM_CD=a.DLVR_PKG_VOL_UOM_CD
+AND picker.DRVR_USER_ID=a.DRVR_USER_ID
+AND picker.PKG_RCPT_DRVR_TS=a.PKG_RCPT_DRVR_TS
+AND picker.PKG_WT_QTY=a.PKG_WT_QTY
+AND picker.PKG_WT_UOM=a.PKG_WT_UOM
+
+LEFT JOIN ( 
+    select datetime(b.COUR_RQ_TS_UTC, tz.BQ_TM_ZONE) AS COUR_RQ_TS_LCL,
+    b.SLOT_START_TS AS Slot_From_TS,
+    b.SALES_ORDER_NBR,
+    b.PO_NBR,
+    b.AGE_RSTR_IND,
+    b.AT_DROPOFF_TS,
+    b.BATCH_ID,
+    b.BILL_TO_CUST_ID,
+    b.CUST_DLVR_INSTR_TXT,
+    b.DLVR_PKG_SIZE_CD,
+    b.DLVR_PKG_VOL_QTY,
+    b.DLVR_PKG_VOL_UOM_CD,
+    b.DRVR_USER_ID,
+    b.FIRST_ASSGN_CARRIER_NM,
+    b.MAX_TRIP_TS,
+    b.MIN_TRIP_TS,
+    b.ORDER_READINESS_TS,
+    b.PKG_RCPT_DRVR_TS,
+    b.PO_LOAD_TS,
+    b.RPT_DT,
+    b.TRIP_ID,
+ from `wmt-edw-prod.WW_SUPPLY_CHAIN_DL_VM.DLVR_LAST_MI_DTL`  b
+LEFT JOIN `wmt-tebi.common.TIMEZONE_ACRONYM` tz
+ON b.STORE_TM_ZONE_CD = tz.TM_ZONE_CD
+)last_mi_dl
+ON
+cast(last_mi_dl.AGE_RSTR_IND AS STRING)=cast(a.AGE_RSTR_IND AS STRING) AND
+last_mi_dl.SALES_ORDER_NBR=a.sales_order_num AND
+last_mi_dl.PO_NBR = a.po_num AND
+last_mi_dl.Slot_From_TS = a.Slot_From_TS AND
+last_mi_dl.At_Dropoff_TS=a.At_Dropoff_TS AND
+last_mi_dl.BATCH_ID=a.BATCH_ID AND
+last_mi_dl.BILL_TO_CUST_ID=a.BILL_TO_CUST_ID AND
+last_mi_dl.CUST_DLVR_INSTR_TXT=a.CUST_DLVR_INSTR_TXT AND
+last_mi_dl.DLVR_PKG_SIZE_CD=a.DLVR_PKG_SIZE_CD AND
+last_mi_dl.DLVR_PKG_VOL_QTY=a.DLVR_PKG_VOL_QTY AND
+last_mi_dl.DLVR_PKG_VOL_UOM_CD=a.DLVR_PKG_VOL_UOM_CD AND
+last_mi_dl.DRVR_USER_ID=a.DRVR_USER_ID AND
+last_mi_dl.FIRST_ASSGN_CARRIER_NM=a.FIRST_ASSGN_CARRIER_NM AND
+last_mi_dl.MAX_TRIP_TS=a.MAX_TRIP_TS AND
+last_mi_dl.MIN_TRIP_TS=a.MIN_TRIP_TS AND
+last_mi_dl.Order_Readiness_TS=a.Order_Readiness_TS AND
+last_mi_dl.PKG_RCPT_DRVR_TS=a.PKG_RCPT_DRVR_TS AND
+last_mi_dl.PO_LOAD_TS=a.PO_LOAD_TS AND
+last_mi_dl.RPT_DT=a.RPT_DT AND
+last_mi_dl.TRIP_ID=a.TRIP_ID
+
+
+left join (
+  SELECT
+  SFO.PO_NUM,
+  SFO.SALES_ORDER_NUM,
+  SFO.TRIP_ID,
+  COUNT(DISTINCT CASE WHEN CAST(PICK_CMPLT_LCL_TS AS DATETIME) <= CAST(ORDER_PICK_DUE_LCL_TS AS DATETIME) THEN SFO.STORE_FULFMT_ORDER_NUM END) AS OTP_NR,
+  COUNT(DISTINCT SFO.STORE_FULFMT_ORDER_NUM) AS OTP_DR
+  FROM `wmt-edw-prod.WW_MB_DL_VM.STORE_FULFMT_ORDER` SFO
+  JOIN(
+    SELECT
+    STORE_NUM,
+    STORE_FULFMT_ORDER_NUM,
+    APPLN_VER_CD,
+    GEO_REGION_CD,
+    LCL_TZ_CD,
+    OP_CMPNY_CD,
+    PO_NUM,
+    SALES_ORDER_NUM,
+    SRC_PGM_NM,
+    STORE_GEO_REGION_CD,
+    TZ_CD,
+    MAX(PICK_ACTV_LCL_TS ) AS PICK_CMPLT_LCL_TS,
+    FROM `wmt-edw-prod.WW_MB_DL_VM.STORE_FULFMT_PICK_LINE`  SFPL
+    --JOIN `wmt-ops-support-prod.DimCommon.dimStoreTimezone` DST
+    --ON SFPL.STORE_NUM = DST.storeNbr
+    WHERE SRC_CRE_UTC_DT > CURRENT_DATE-90
+    AND PICK_COMMODITY_CD NOT IN ('107','93','97','95') -- 107 = spark shopper & rest are SFS
+    GROUP BY 1,2,3,4,5,6,7,8,9,10,11
+  ) PICK
+    ON SFO.STORE_NUM = PICK.STORE_NUM
+    AND SFO.STORE_FULFMT_ORDER_NUM = PICK.STORE_FULFMT_ORDER_NUM
+    AND SFO.APPLN_VER_CD= PICK.APPLN_VER_CD
+    AND SFO.GEO_REGION_CD= PICK.GEO_REGION_CD
+    AND SFO.LCL_TZ_CD= PICK.LCL_TZ_CD
+    AND SFO.OP_CMPNY_CD= PICK.OP_CMPNY_CD
+    AND SFO.PO_NUM= PICK.PO_NUM
+    AND SFO.SALES_ORDER_NUM= PICK.SALES_ORDER_NUM
+    AND SFO.SRC_PGM_NM= PICK.SRC_PGM_NM
+    AND SFO.STORE_GEO_REGION_CD= PICK.STORE_GEO_REGION_CD
+    AND SFO.TZ_CD= PICK.TZ_CD
+  WHERE SFO.SRC_CRE_UTC_DT > CURRENT_DATE-90
+  GROUP BY 1,2,3
+) otp
+on a.SALES_ORDER_NUM=otp.SALES_ORDER_NUM
+AND a.po_num =otp.PO_NUM
+AND a.TRIP_ID=otp.TRIP_ID
+----------
+where Delivered_TS is not null --or GIF_Delivered_TS is not null 
+and extract (date from coalesce(Delivered_TS,GIF_Delivered_TS)) >= '2022-01-29'
+);
+
+-- Get tipping details from tip log
+
+--Plutus table---
+create or replace view `wmt-tebi.Tanmoy.LMD_TIPPING_LOG_Plutus` as
+(
+    select SALES_ORDER_NUM as sales_order_nbr, string_agg(distinct case when PYMT_TRANS_CD like 'A%' then 'Auth-Failure' 
+                  when PYMT_TRANS_CD like 'Z%' then 'Gateway Network Failure'
+                  else 'N/A' end) as failure_type  
+                  
+    from wmt-edw-prod.WW_FIN_DL_VM.FIN_ORDER_INV_TNDR 
+    where OFFR_ID='DRIVER_TIP'
+    and SRC_CRE_DT_UTC >= '2022-01-01'
+    group by 1
+
+);
+
+
+
+CREATE OR REPLACE TABLE `wmt-tebi.Tanmoy.LMD_TIPPING_LOG` AS (
+select SALES_ORDER_NBR, 
+max(case when DRVR_TIP_ACTN_STATUS_NM='ADDED' then 1 else 0 end) as tip_added,
+sum(case when DRVR_TIP_ACTN_STATUS_NM='ADDED' then TIP_AMT else 0 end) as tip_added_amt,
+
+max(case when DRVR_TIP_ACTN_STATUS_NM='INVOICED' then 1 else 0 end) as tip_invoiced,
+sum(case when DRVR_TIP_ACTN_STATUS_NM='INVOICED' then TIP_AMT else 0 end) as tip_invoice_amt,
+
+max(case when DRVR_TIP_ACTN_STATUS_NM='REFUNDED' then 1 else 0 end) as tip_refund,
+sum(case when DRVR_TIP_ACTN_STATUS_NM='REFUNDED' then TIP_AMT else 0 end) as tip_refund_amt,
+max(case when DRVR_TIP_ACTN_STATUS_NM='REFUNDED' then RSN_TXT end) as tip_refund_rsn,
+
+max(case when DRVR_TIP_ACTN_STATUS_NM='FAILED_CHARGE' then 1 else 0 end) as tip_failed,
+
+max(case when  DRVR_TIP_ACTN_STATUS_NM='INVOICED' and TIP_TYPE_NM = 'PRE-TIP' then 1 end) as pre_tip_ind,
+max(case when  DRVR_TIP_ACTN_STATUS_NM='INVOICED' and TIP_TYPE_NM = 'POST-TIP' then 1 end) as post_tip_ind,
+min(case when  DRVR_TIP_ACTN_STATUS_NM='INVOICED' then SRC_CREATE_TS end) as tip_ts,
+min(case when  DRVR_TIP_ACTN_STATUS_NM='INVOICED' then SRC_CREATE_TS_UTC end) as tip_ts_utc,
+
+max(case when DRVR_TIP_ACTN_STATUS_NM='ELIGIBLE' then 1 else 0 end ) as tip_eligible,
+max(case when DRVR_TIP_ACTN_STATUS_NM='NOT_ELIGIBLE' then 1 else 0 end ) as tip_not_eligible, 
+max(case when DRVR_TIP_ACTN_STATUS_NM='CAPTURE' then 1 else 0 end ) as tip_captured,
+max(case when DRVR_TIP_ACTN_STATUS_NM='UPDATED' then 1 else 0 end ) as tip_updated,
+max(case when DRVR_TIP_ACTN_STATUS_NM='CANCELLED' then 1 else 0 end ) as order_cancelled
+
+from 
+`wmt-edw-prod.WW_SUPPLY_CHAIN_DL_VM.LAST_MI_DLVR_ORDER_DRVR_TIP_EVENT_LOG`
+where SRC_CREATE_DT>= '2022-01-01'
+group by 1);
+
+create or replace table `wmt-tebi.Tanmoy.LMD_TIPPING_reason_log` as
+
+(
+    select a.sales_order_nbr, 
+    case when a.tip_invoiced=1  then 'success'
+         when a.tip_added= 1 and a.tip_invoiced=0 and a.tip_not_eligible=1 then 'updated_to_zero'
+         when a.tip_added=0 and (a.tip_not_eligible=1 or a.tip_eligible=1) then 'No_Tip_Added'
+         when a.tip_failed=1 and b.failure_type like '%Auth-Failure%' 
+         then 'Auth-Failure'
+         when a.tip_failed=1 and b.failure_type like'%Gateway Network Failure%'
+         then 'Gateway Network Failure'
+          when a.tip_failed=1 and (b.sales_order_nbr is null or b.failure_type='N/A')then 'Missing_in_plutus'
+          when failure_type like '%Auth-Failure%' or failure_type like '%Gateway Network Failure%' then 'failure_in_plutus_not_in_logs'
+          when a.tip_added=1 and a.tip_invoiced=0 and (a.tip_not_eligible=0 and a.tip_captured=1) then 'In Capture'
+          when tip_failed=1 then 'tip_failure_tipping_log'
+         when a.order_cancelled=1 then 'Order Cancelled'
+         else 'N/A' end as Reason_type
+ 
+    from `wmt-tebi.Tanmoy.LMD_TIPPING_LOG` a
+    left join  `wmt-tebi.Tanmoy.LMD_TIPPING_LOG_Plutus` b
+    on a.sales_order_nbr=b.SALES_ORDER_NBR
+);
+--CSAT information for delivered POs
+
+CREATE OR REPLACE TABLE `wmt-tebi.Tanmoy.LMD_TIPPING_CSAT` AS (
+   SELECT
+    TRIM(REGEXP_REPLACE(SR.SRC_RSPNS_ID, r' .*', '')) AS PO_NUM
+    ,AVG(CAST(TRIM(SR.RSPNS_VAL) AS INT64)) AS CSAT_Rating
+    FROM `wmt-edw-prod.WW_MB_DL_VM.OPD_SURVEY_RSPNS` SR
+    INNER JOIN `wmt-edw-prod.WW_SUPPLY_CHAIN_DL_VM.LAST_MI_DLVR_SURVY_DTL` SDTL 
+        ON SR.SURVEY_ID = SDTL.SURVEY_ID
+    INNER JOIN `wmt-edw-prod.WW_MB_DL_VM.OPD_SURVEY_QSTN_LKP` SQ_LKP 
+        ON SDTL.SURVEY_ID = SQ_LKP.SURVEY_ID AND SR.SURVEY_QSTN_ID = SQ_LKP.SURVEY_QSTN_ID
+    INNER JOIN  (select distinct PO_NUM from  `wmt-tebi.Tanmoy.LMD_TIPPING_DELIVERED_TRIPS` ) SRC 
+        ON REGEXP_REPLACE(SR.SRC_RSPNS_ID, r' .*', '') = SRC.PO_NUM --ONLY REQUIRED ORDERS
+    WHERE UPPER(SQ_LKP.QSTN_TXT) = 'RATING'
+    AND Lower(SDTL.SURVEY_NM) IN ('walmart_us_glass_order_delivery',
+                                      'walmart_us_grocery_order_delivery', 
+                                      'walmart_us_oneapp_order_delivery')
+    AND SR.RSPNS_DT >= '2022-01-01' 
+GROUP BY 1);
+
+--Final trip level by joining all tables
+
+CREATE OR REPLACE TABLE `wmt-tebi.Tanmoy.LMD_TIPPING_TRIP_DTL` as
+(select a.*, cal2.WM_WK as TIP_WM_WK,
+case when tip_ind=1 and pre_tip_ind=1 then 'Pre Fulfillment Tip' 
+  when tip_ind=1 and pre_tip_ind=0 then 'Post Fulfillment Tip' end as Tip_type
+
+from
+(select tr.store_id,
+tr.sales_order_num, 
+tr.po_num, 
+tr.trip_id, 
+tr.FIRST_ASSGN_CARRIER_NM,
+tr.carrier,
+tr.BILL_TO_CUST_ID,  
+tr.DU_IND,
+tr.ORG_TM_ZONE,
+tr.BU, 
+tr.CBSA, 
+tr.REGION,
+tr.OG_MKT_ID, 
+tr.DOM,
+tr.FULFMT_TYPE_Desc AS FULFMT_TYPE_Desc_no_evergreen_ind,
+CASE WHEN tr.sales_order_num IN (
+  select distinct ext_order_id as sales_order_num
+  from `wmt-edw-prod.WW_MB_DL_VM.CAPACITY_ORDER_INFORMATION_NEW`
+  where cpcty_lock_id in (
+    select distinct rsrvtn_id 
+    from `wmt-edw-prod.WW_MB_DL_VM.STORE_FULFMT_SHOPPER_RSRVTN_NEW` 
+    where rsrvtn_type_nm = 'EVERGREEN'
+  )
+) THEN "EVERGREEN" ELSE tr.FULFMT_TYPE_Desc END AS FULFMT_TYPE_Desc,
+tr.picker_type_nm,
+tr.OTP_NR,
+tr.OTP_DR,
+tr.BASKET,  
+case when  basket <0 then '<$0'
+when basket >=0 and basket<10 then '$0-$10'
+when basket >=10 and basket<20 then '$10-$20'
+when basket >=20 and basket<30 then '$20-$30'
+when basket >=30 and basket<40 then '$30-$40'
+when basket >=40 and basket<50 then '$40-$50'
+when basket >=50 and basket<60 then '$50-$60'
+when basket >=60 and basket<70 then '$60-$70'
+when basket >=70 and basket<80 then '$70-$80'
+when basket >=80 and basket<90 then '$80-$90'
+when basket >=90 and basket<100 then '$90-$100'
+when basket >=100 and basket<110 then '$100-$110'
+when basket >=110 and basket<120 then '$110-$120'
+when basket >=120 and basket<130 then '$120-$130'
+when basket >=130 and basket<140 then '$130-$140'
+when basket >=140 and basket<150 then'$140-$150'
+when basket >=150 and basket<160 then '$150-$160'
+when basket >=160 then '$160>' end as basket_bucket,
+tr.COUR_RQ_TS_LCL,
+tr.Delivered_TS, 
+tr.Delivery_DT,
+tr.GIF_Delivered_TS,
+tr.ORDER_PLACED_DT,
+tr.ORDER_PLACED_TS, 
+tr.Slot_From_TS, 
+tr.Slot_To_TS,
+tr.TIP_ELIG_IND,
+tr.order_random_num,
+tr.po_random_num,
+tp.tip_added,
+tp.tip_added_amt,
+tp.tip_invoiced,
+tp.tip_invoice_amt,
+tp.tip_refund,
+tp.tip_refund_amt,
+tp.tip_refund_rsn,
+tp.tip_failed,
+coalesce(tip_invoice_amt,0) - coalesce(tip_refund_amt,0) as Order_tip_amount,
+(coalesce(tip_invoice_amt,0) - coalesce(tip_refund_amt,0)) / order_delivery_count as delivery_tip_amount,
+case when coalesce(tip_invoice_amt,0) - coalesce(tip_refund_amt,0) > 0 then 1 else 0 end as tip_ind,
+coalesce(tp.pre_tip_ind,0) as pre_tip_ind,
+coalesce(tp.post_tip_ind,0) as post_tip_ind,
+case when upper(carrier) = 'SPARK' then 'Spark' else 'CrowdSource' end as carrier_type,
+CASE WHEN ORG_TM_ZONE='MST' THEN tp.tip_ts ELSE DATETIME(tp.tip_ts_utc,ORG_TM_ZONE) END as TIP_TS,
+extract (date from CASE WHEN ORG_TM_ZONE='MST' THEN tp.tip_ts ELSE DATETIME(tp.tip_ts_utc,ORG_TM_ZONE) END ) as TIP_DT,
+c.CSAT_Rating,
+case when coalesce(CSAT_Rating,0) >0 then 1 else 0 end as  CSAT_IND,
+case when coalesce(CSAT_Rating,0) > 3 then 1 else 0 end as  Positive_CSAT_IND,
+cal1.WM_WK as Delivery_WM_WK,
+cal1.WM_YR_DESC as Delivery_WM_YR_DESC,
+pymt.PYMT_TYPE_NM,
+CASE WHEN TIMESTAMP_DIFF(tr.Slot_From_TS, tr.COUR_RQ_TS_LCL, MINUTE) < 4 AND picker_type_nm = "ASSOCIATE"
+  AND tr.FIRST_ASSGN_CARRIER_NM = "SPARK" AND FULFMT_TYPE_Desc='Scheduled Delivery'
+  THEN tr.sales_order_num||tr.PO_NUM ELSE NULL END AS LCA_NUM, 
+CASE WHEN picker_type_nm = "ASSOCIATE"
+  AND tr.FIRST_ASSGN_CARRIER_NM = "SPARK" AND FULFMT_TYPE_Desc='Scheduled Delivery'
+  THEN tr.sales_order_num||tr.PO_NUM ELSE NULL END AS LCA_DEN
+from `wmt-tebi.Tanmoy.LMD_TIPPING_DELIVERED_TRIPS`  tr
+left outer join `wmt-tebi.Tanmoy.LMD_TIPPING_LOG` tp on tr.sales_order_num=tp.SALES_ORDER_NBR
+left outer join `wmt-tebi.Tanmoy.LMD_TIPPING_CSAT` c on tr.po_num=c.po_num
+left outer join `wmt-tebi.Tanmoy.LMD_TIPPING_CAL` cal1 on tr.Delivery_DT=cal1.CAL_DT 
+LEFT JOIN (
+    SELECT DISTINCT SALES_ORDER_NUM, PYMT_TYPE_NM 
+    FROM `wmt-edw-prod.WW_FIN_DL_VM.FIN_ORDER_INV_TNDR` 
+    WHERE SRC_CRE_DT_UTC>= '2023-02-01'
+) pymt
+ON tr.sales_order_num = pymt.SALES_ORDER_NUM
+) a
+left outer join `wmt-tebi.Tanmoy.LMD_TIPPING_CAL` cal2 on a.tip_dt =cal2.CAL_DT
+);
+
+--tipping day agg
+
+CREATE OR REPLACE TABLE `wmt-tebi.Tanmoy.LMD_TIPPING_DAY_AGG` as
+(select 
+Delivery_WM_WK, --1
+TIP_WM_WK, --2
+Delivery_dt, --3
+extract(date from TIP_TS) as tip_dt, -- 4
+ORDER_PLACED_DT, 
+store_id, --5
+BU, --6
+CBSA, --7
+REGION, --8
+OG_MKT_ID, --9
+--OG_MKT_NM, --10
+DOM, --11
+DLVR_AREA_NM as walmart_zone,
+FULFMT_TYPE_Desc, --12
+carrier, --13
+carrier_type, --14
+DU_IND as WPLUS_IND, --15
+tip_type, --16
+tip_refund_rsn, --17
+basket_bucket,--18
+PYMT_TYPE_NM,
+
+--po/delivery count
+count(distinct sales_order_num||PO_NUM) as Delivered_PO,
+count(PO_NUM||trip_id) as Deliveries,
+
+--tip eligible po/delviery count
+count(distinct case when TIP_ELIG_IND=1 then sales_order_num||PO_NUM end) as tip_eligible_delivered_PO,
+count(case when TIP_ELIG_IND=1 then PO_NUM||trip_id end) as tip_eligible_deliveries,
+
+--tipped PO count
+count(distinct case when tip_ind=1 then sales_order_num||PO_NUM end) as tip_PO_count,
+count(distinct case when tip_ind=1 then PO_NUM||trip_id end) as tip_delivery_count,
+
+--tip amount
+sum(case when order_random_num=1 then Order_tip_amount else 0 end) as Order_tip_amount,
+
+--Basket
+sum(case when po_random_num=1 then BASKET else 0 end) as po_basket_amount,
+sum(case when po_random_num=1 and tip_ind=1 then BASKET else 0 end) as basket_w_tips_num,
+count(distinct case when po_random_num=1 and tip_ind=1 then po_num end) as basket_w_tips_den,
+
+--Csat metrics
+count(distinct case when tip_ind=1 and CSAT_IND=1 and Positive_CSAT_IND=1 then po_num end ) as csat_w_tips_num,
+count(distinct case when tip_ind=1 and CSAT_IND=1 then po_num end ) as csat_w_tips_den,
+count(distinct case when tip_ind=0 and CSAT_IND=1 and Positive_CSAT_IND=1 then po_num end ) as csat_wo_tips_num,
+count(distinct case when tip_ind=0 and CSAT_IND=1 then po_num end ) as csat_wo_tips_den,
+
+--fraud (orders with tip>20)
+count(distinct case when tip_ind=1 and Order_tip_amount>=20 then PO_NUM||trip_id end) as tip_over_20_count,
+
+-- tip added
+count(distinct case when coalesce(tip_added_amt)>0 then PO_NUM||trip_id end) as tip_added_count,
+-- tip increased
+count(distinct case when coalesce(tip_added_amt)>0 and tip_added_amt < Order_tip_amount then PO_NUM||trip_id end) as tip_increased_count,
+-- tip decreased
+count(distinct case when coalesce(tip_added_amt)>0 and tip_added_amt > Order_tip_amount then PO_NUM||trip_id end) as tip_decreased_count,
+-- tip failed
+count(distinct case when tip_failed=1 then PO_NUM||trip_id end) as tip_failed_count,
+-- tip refunded
+count(distinct case when tip_failed=1 then PO_NUM||trip_id end) as tip_refunded_count,
+-- tip invoiced
+count(distinct case when tip_invoiced=1 then PO_NUM||trip_id end) as tip_invoiced_count,
+count(distinct case when  tip_added= 1 and tip_invoiced=0 then sales_order_num||po_num end) as tip_updated_to_zero,
+
+-- LCA
+COUNT(DISTINCT td.LCA_NUM) as LCA_NUM,
+COUNT(DISTINCT td.LCA_DEN) as LCA_DEN,
+
+-- OTP
+sum(td.OTP_NR) as OTP_NR,
+sum(td.OTP_DR) as OTP_DR,
+
+from `wmt-tebi.Tanmoy.LMD_TIPPING_TRIP_DTL` td
+left join  `wmt-edw-prod.WW_SUPPLY_CHAIN_DL_VM.LAST_MI_DLVR_STORE_HIST` st
+on td.store_id=st.STORE_NBR
+group by 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17, 18, 19, 20);
+
+
+
+---By reason
+
+create or replace table `wmt-tebi.Tanmoy.LMD_TIPPING_DAY_AGG_By_reason` as
+(
+with tipping_negative_reason as
+(select a.*, cal2.WM_WK as TIP_WM_WK,
+from
+(select tr.store_id,
+tr.sales_order_num, 
+tr.po_num, 
+tr.trip_id, 
+tr.FIRST_ASSGN_CARRIER_NM,
+tr.carrier,
+tr.DU_IND,
+tr.BU, 
+tr.CBSA, 
+tr.REGION,
+tr.OG_MKT_ID, 
+tr.DOM,
+tr.FULFMT_TYPE_Desc,
+tr.BASKET,  
+tr.Delivery_DT,
+tr.order_random_num,
+tr.po_random_num,
+rs.Reason_type,
+case when upper(carrier) = 'SPARK' then 'Spark' else 'CrowdSource' end as carrier_type,
+CASE WHEN ORG_TM_ZONE='MST' THEN tp.tip_ts ELSE DATETIME(tp.tip_ts_utc,ORG_TM_ZONE) END as TIP_TS,
+extract (date from CASE WHEN ORG_TM_ZONE='MST' THEN tp.tip_ts ELSE DATETIME(tp.tip_ts_utc,ORG_TM_ZONE) END ) as TIP_DT,
+cal1.WM_WK as Delivery_WM_WK,
+cal1.WM_YR_DESC as Delivery_WM_YR_DESC
+from `wmt-tebi.Tanmoy.LMD_TIPPING_DELIVERED_TRIPS`  tr
+left outer join `wmt-tebi.Tanmoy.LMD_TIPPING_LOG` tp on tr.sales_order_num=tp.SALES_ORDER_NBR
+left outer join `wmt-tebi.Tanmoy.LMD_TIPPING_CSAT` c on tr.po_num=c.po_num
+left outer join `wmt-tebi.Tanmoy.LMD_TIPPING_CAL` cal1 on tr.Delivery_DT=cal1.CAL_DT
+left outer join  `wmt-tebi.Tanmoy.LMD_TIPPING_reason_log` rs on rs.sales_order_nbr=tr.sales_order_num  ) a
+left outer join `wmt-tebi.Tanmoy.LMD_TIPPING_CAL` cal2 on a.tip_dt =cal2.CAL_DT
+)
+select
+Delivery_WM_WK, --1
+TIP_WM_WK, --2
+Delivery_dt, --3
+extract(date from TIP_TS) as tip_dt, -- 4
+store_id, --5
+BU, --6
+CBSA, --7
+REGION, --8
+OG_MKT_ID, --10
+DOM, --11
+FULFMT_TYPE_Desc, --12
+carrier, --13
+carrier_type, --14
+DU_IND as WPLUS_IND, --16
+Reason_type,
+count(distinct sales_order_num||PO_NUM) as Delivered_PO
+from tipping_negative_reason
+group by 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15);
+
+
+
+create or replace table `wmt-tebi.Tanmoy.LMD_TIPPING_EXPERIMENT_ORDER` as
+(
+
+/* code during experiment
+   SELECT TD.*, E.test_variant, E.experiment_date FROM
+      `wmt-tebi.sahithiv.LMD_TIPPING_TRIP_DTL` TD
+
+ join  ( select distinct sales_order_num, expo_date as experiment_date, exp_type as test_variant,wplus_flag from `wmt-tebi.sahithiv.TEMP_TIPPING_AB_FINAL_ORD_DATA` ) E
+on cast(TD.sales_order_num as string)=cast(E.sales_order_num as string)
+*/
+
+SELECT TD.*, 'variation2' as test_variant, ORDER_PLACED_DT as experiment_date FROM
+      `wmt-tebi.Tanmoy.LMD_TIPPING_TRIP_DTL`      
+      TD
+
+   where order_placed_dt between current_date('US/Central')-2 and current_date('US/Central')
+
+);
+
+create or replace table  `wmt-tebi.Tanmoy.LMD_SPARK_METRICS` as
+(
+   select sales_order_num, po_num, trip_id, On_Time_Delivery, CARRIER_ORG_NM, ORDER_PAYMENT, bonus_payment,INCENTIVE_AMT,SHOPPER_INCENTIVE,CARRIER_DLVR_TS_TZ,	 RETURNED_TS_TZ	, ENR_RETURN_TS_TZ,
+  ACQ_INCENTIVE,RFR_INCENTIVE	,ACCEPTED,  BROADCAST_ACCEPTED from `wmt-edw-sandbox.LMD_DA.SPARK_DELIVERY_DS_ALL_FINAL`
+
+
+
+
+);
+CREATE OR REPLACE TABLE `wmt-tebi.Tanmoy.LMD_TIPPING_EXPERIMENT_AGG` as
+(
+
+with tipping_experiment_metrics as
+(
+  SELECT TD.*, 
+  coalesce (e.test_variant, 'variation2 after 4/4 rollout') as test_variant, coalesce (e.experiment_date, td.ORDER_PLACED_DT) as experiment_date,
+       -- E.test_variant, 
+       -- E.experiment_date, 
+       -- r.return_trip_counts,
+      --  r.trip_random_num as return_trip_random_num, 
+        ON_TIME_DLVR_IND,
+        On_Time_Delivery as spark_OTD, 
+       CARRIER_ORG_NM, 
+       ORDER_PAYMENT, 
+       bonus_payment,
+       INCENTIVE_AMT,SHOPPER_INCENTIVE,CARRIER_DLVR_TS_TZ,RETURNED_TS_TZ,ENR_RETURN_TS_TZ,
+  ACQ_INCENTIVE,RFR_INCENTIVE	,ACCEPTED,  BROADCAST_ACCEPTED, nps.RECOMD_RATG_NBR
+       FROM
+      `wmt-tebi.Tanmoy.LMD_TIPPING_TRIP_DTL` TD
+
+left join ( select distinct sales_order_num, expo_date as experiment_date, exp_type as test_variant,wplus_flag from `wmt-tebi.sahithiv.TEMP_TIPPING_AB_FINAL_ORD_DATA`  ) E
+on cast(TD.sales_order_num as string)=cast(E.sales_order_num as string)
+--left join `wmt-edw-sandbox.LMD_DA.LMD_driver_return_po_trip_dtl`  r
+--on TD.sales_order_num=r.SALES_ORDER_NUM
+-- and TD.po_num=r.po_num
+-- and TD.trip_id=r.trip_id
+left join `wmt-tebi.Scheduled.VOL_ROVR_final_Operation_TS_PO`	rf
+on TD.sales_order_num=rf.SALES_ORDER_NUM
+and td.po_num=rf.PO_num
+and TD.trip_id=rf.trip_id
+left join `wmt-tebi.Tanmoy.LMD_SPARK_METRICS` sp
+on td.sales_order_num=sp.sales_order_num
+and td.po_num=sp.po_num
+and td.trip_id=sp.trip_id
+left join  `wmt-edw-prod.WW_SURVEY_RSPNS_DL_VM.GLS_SURVY_RSPNS` nps
+on cast(nps.SALES_ORDER_NBR as string)=cast(td.sales_order_num as string)
+where (td.ORDER_PLACED_DT > '2023-04-04' or e.test_variant is not null)
+)
+select 
+Delivery_WM_WK, --1
+TIP_WM_WK, --2
+Delivery_dt, --3
+extract(date from TIP_TS) as tip_dt, -- 4
+store_id, --5
+BU, --6
+CBSA, --7
+REGION, --8
+OG_MKT_ID, --9
+--OG_MKT_NM, --10
+DOM, --11
+FULFMT_TYPE_Desc, --12
+carrier, --13
+carrier_type, --14
+DU_IND as WPLUS_IND, --15
+tip_type, --16
+tip_refund_rsn, --17
+basket_bucket,--18
+experiment_date,---19
+test_variant, ---20
+PYMT_TYPE_NM,
+
+--po/delivery count
+count(distinct sales_order_num||PO_NUM) as Delivered_PO,
+count(PO_NUM||trip_id) as Deliveries,
+
+--tip eligible po/delviery count
+count(distinct case when TIP_ELIG_IND=1 then sales_order_num||PO_NUM end) as tip_eligible_delivered_PO,
+count(case when TIP_ELIG_IND=1 then PO_NUM||trip_id end) as tip_eligible_deliveries,
+
+-- LCA
+COUNT(DISTINCT LCA_NUM) as LCA_NUM,
+COUNT(DISTINCT LCA_DEN) as LCA_DEN,
+
+-- OTP
+sum(OTP_NR) as OTP_NR,
+sum(OTP_DR) as OTP_DR,
+
+--tipped PO count
+count(distinct case when tip_ind=1 then sales_order_num||PO_NUM end) as tip_PO_count,
+count(distinct case when tip_ind=1 then PO_NUM||trip_id end) as tip_delivery_count,
+
+--tip amount
+sum(case when order_random_num=1 then Order_tip_amount else 0 end) as Order_tip_amount,
+
+--Basket
+sum(case when po_random_num=1 then BASKET else 0 end) as po_basket_amount,
+sum(case when po_random_num=1 and tip_ind=1 then BASKET else 0 end) as basket_w_tips_num,
+count(distinct case when po_random_num=1 and tip_ind=1 then po_num end) as basket_w_tips_den,
+
+--Csat metrics
+count(distinct case when tip_ind=1 and CSAT_IND=1 and Positive_CSAT_IND=1 then po_num end ) as csat_w_tips_num,
+count(distinct case when tip_ind=1 and CSAT_IND=1 then po_num end ) as csat_w_tips_den,
+count(distinct case when tip_ind=0 and CSAT_IND=1 and Positive_CSAT_IND=1 then po_num end ) as csat_wo_tips_num,
+count(distinct case when tip_ind=0 and CSAT_IND=1 then po_num end ) as csat_wo_tips_den,
+
+---customer nps metric
+count(distinct case when  RECOMD_RATG_NBR>=9 then sales_order_num||po_num end) as customer_nps_promoters,
+count(distinct case when  RECOMD_RATG_NBR <7 then sales_order_num||po_num end) as customer_nps_detractors,
+
+
+
+count(distinct case when RECOMD_RATG_NBR is not null then sales_order_num||po_num end ) as survey_size,
+
+
+--fraud (orders with tip>20)
+count(distinct case when tip_ind=1 and Order_tip_amount>=20 then PO_NUM||trip_id end) as tip_over_20_count,
+
+-- tip added
+count(distinct case when coalesce(tip_added_amt)>0 then PO_NUM||trip_id end) as tip_added_count,
+-- tip increased
+count(distinct case when coalesce(tip_added_amt)>0 and tip_added_amt < Order_tip_amount then PO_NUM||trip_id end) as tip_increased_count,
+-- tip decreased
+count(distinct case when coalesce(tip_added_amt)>0 and tip_added_amt > Order_tip_amount then PO_NUM||trip_id end) as tip_decreased_count,
+-- tip failed
+count(distinct case when tip_failed=1 then PO_NUM||trip_id end) as tip_failed_count,
+-- tip refunded
+count(distinct case when tip_failed=1 then PO_NUM||trip_id end) as tip_refunded_count,
+-- tip invoiced
+count(distinct case when tip_invoiced=1 then PO_NUM||trip_id end) as tip_invoiced_count,
+count(distinct case when  tip_added= 1 and tip_invoiced=0 then sales_order_num||po_num end) as tip_updated_to_zero,
+--count(distinct case when return_trip_random_num=1 and return_trip_counts>=1 then sales_order_num||po_num||trip_id end) as driver_return_orders,
+count(distinct case when on_time_dlvr_ind=1 then sales_order_num||po_num end) as OTD_Orders,
+--spark Metrics
+count(distinct case when carrier='SPARK' and spark_OTD='Y' then sales_order_num||po_num end) as SPARK_OTD,
+sum(case when carrier_org_nm='Spark' then ifnull(order_payment, 0) end) as base_cpd,
+sum( case when CARRIER_ORG_NM='Spark' then ifnull(bonus_payment,0)end ) as Surge_cpd,
+sum(case when carrier_org_nm='Spark' then ifnull(incentive_amt, 0)+ifnull(shopper_incentive, 0)end) as Incentive_CPD,
+sum(case when carrier_org_nm='Spark' then ifnull(acq_incentive, 0)end) as acq_incentive, 
+sum(case when carrier_org_nm='Spark'then ifnull(rfr_incentive, 0) end) as rfr_incentive,
+count(distinct case when carrier='SPARK' then sales_order_num||PO_num||trip_id end) as spark_total_carrier_Requested,
+count(distinct case when carrier='SPARK' and (IFNULL(Accepted,0)>0 OR IFNULL(Broadcast_Accepted,0)>0) then  sales_order_num||PO_num||trip_id end) as PSA_Numerator,
+count(distinct case when carrier_org_nm= 'Spark' AND (NOT Carrier_Dlvr_Ts_Tz is null OR NOT RETURNED_TS_TZ is null OR NOT ENR_RETURN_TS_TZ is null) then sales_order_num||PO_num||trip_id else NULL END) as total_spark_deliveries_deliveryreturned
+
+from tipping_experiment_metrics
+group by 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17, 18, 19, 20);

@@ -1,0 +1,464 @@
+/*
+2024-03-06 - a0k0a9p - updated a field name and asliased it to match the original name. Old field name and alias SMART_JOB. New field name CUR_SMART_JOB. Table `wmt-us-assoc-analytics-prod.Adhoc.VW_InHome_Combined_Roster`.
+2024-03-25 - a0k0a9p - updated the launcher table from `wmt-edw-sandbox.LMD_DA.Inhome_Store_Launcher_data` to `wmt-tebi.inhome.store_launcher`.
+2024-05-13 - a0k0a9p - changed the store table (`wmt-edw-sandbox.LMD_DA.INHOME_STORE_LAUNCH_DATES_MANUAL_2`) so it's manually maintained. too many upstream issues with the automated query.
+*/
+
+/* variable and if statement to only run at. end if at the bottom. */
+-- declare run_time default if (extract (hour from current_time ('US/Central')) in (7, 8), true, false);
+-- if run_time = true then
+
+--MASTER FILE FOR JUST LAUNCH DASHBOARD (INCLUDES DELAYED)
+-- CREATE OR REPLACE TABLE `wmt-edw-sandbox.LMD_DA.INHOME_STORE_LAUNCH_DATES_MANUAL` AS /* this can probably be deleted */
+-- SELECT
+--   store
+--   , cbsa
+--   , city
+--   , state
+--   , type
+--   , inhome_status
+--  , PARSE_DATE('%m/%d/%Y', trim(InHome_Launch_Date)) as 
+--   , InHome_Launch_Date
+-- FROM `wmt-edw-sandbox.LMD_DA.last_mile_carrier_master_file` /* last updated 2023-04-28; this can probably be deleted. */
+-- WHERE InHome_Launch_Date NOT IN ('No InHome', 'Delayed')
+--   AND InHome_Launch_Date IS NOT NULL;
+
+--
+
+-- INSERT INTO `wmt-edw-sandbox.LMD_DA.INHOME_STORE_LAUNCH_DATES_MANUAL`
+-- SELECT
+--   store
+--   , cbsa
+--   , city
+--   , state
+--   , type
+--   , 'Delayed' AS inhome_status
+--   , '9999-01-01' AS InHome_Launch_Date
+-- FROM `wmt-edw-sandbox.LMD_DA.last_mile_carrier_master_file`
+-- WHERE InHome_Launch_Date = 'Delayed';
+
+--
+
+--MASTER FILE FOR ALL OTHER DASHBOARDS (ONLY LAUNCHED STORES)
+-- CREATE OR REPLACE TABLE `wmt-edw-sandbox.LMD_DA.INHOME_STORE_LAUNCH_DATES_MANUAL_2` AS /* 2024-05-13 - this table is now manually maintained; insert, update, and delete. */
+-- SELECT
+--   STORE_NBR AS store
+--   , CORE_BASE_STAT_AREA_CD AS cbsa
+--   , INITCAP (CITY_NM) AS city
+--   , ST_CD AS state
+--   , STORE_ORG_TYPE_NM AS type
+--   , CASE
+--     WHEN IN_HOME_DLVR_END_DT IS NOT NULL THEN 'Permanently Closed'
+--     ELSE 'Live'
+--     END AS inhome_status
+--   ,  IN_HOME_DLVR_START_DT AS InHome_Launch_Date
+--   , CASE
+--     WHEN IN_HOME_DLVR_END_DT IS NULL THEN DATE ('9999-12-31')
+--     ELSE IN_HOME_DLVR_END_DT
+--     END AS InHome_End_Date
+-- FROM `wmt-edw-prod.WW_SUPPLY_CHAIN_DL_VM.LAST_MI_DLVR_STORE_HIST`
+-- WHERE IN_HOME_DLVR_START_DT IS NOT NULL
+--   AND CURR_IND = 1
+--   AND IN_HOME_DLVR_START_DT <= CURRENT_DATE
+-- group by 1,2,3,4,5,6,7,8
+
+/* 2024-02-28 - a0k0a9p - union of future store launches that don't have launch dates in the LMD Store History table. */
+-- union all 
+
+-- select
+--   STORE_NBR as store
+--   , CORE_BASE_STAT_AREA_CD as cbsa
+--   , initcap (CITY_NM) as city
+--   , ST_CD as state
+--   , STORE_ORG_TYPE_NM as type
+--   , 'Pending' as inhome_status
+--   , case when STORE_NBR = 4474 then date ('2024-07-24') else date ('2024-05-30') end as InHome_Launch_Date
+--   , date ('9999-12-31') as InHome_End_Date
+-- from `wmt-edw-prod.WW_SUPPLY_CHAIN_DL_VM.LAST_MI_DLVR_STORE_HIST`
+-- where CURR_IND = 1
+--   and STORE_NBR in
+--   (
+--     1762, 3535, 1970, 2103, 2122, 2128, 2336, 2095, 1749, 2130
+--     , 2330, 1753, 2142, 1742, 1807, 3774, 5476, 2141, 2263, 3541
+--     , 4687, 3810, 2068, 2096, 2445, 2446, 3564, 5649, 2945, 5795
+--     , 1860, 3802, 5450, 5944, 2872, 2912, 3336, 3476, 5842, 1754
+--     , 2618, 2700, 4540, 5048, 1611, 1987, 2354, 2559, 2692, 2873
+--     , 3487, 4424, 5844, 5432, 1861, 2087, 2882, 3498, 1472, 1855
+--     , 2448, 2642, 5992, 1577, 1999, 2274, 2352, 3102, 3209, 3624
+--     , 1588, 1879, 1914, 4340, 4392, 2077, 2708, 1747, 1853, 2028
+--     , 2842, 5193, 5425, 1862, 3464, 3796, 1805, 1832, 1915, 2181
+--     , 5096, 5156
+--     , 4474 /* launch 2024-07-24 */
+--   )
+-- /* 2024-02-28 - a0k0a9p - end of update. */
+
+-- ORDER BY 1;
+
+/*
+select inhome_status from `wmt-edw-sandbox.LMD_DA.last_mile_carrier_master_file` group by 1
+
+select InHome_Launch_Date, count(distinct store) from `wmt-edw-sandbox.LMD_DA.last_mile_carrier_master_file` group by 1 order by 1
+
+select InHome_Launch_Date, inhome_status, count(distinct store) from `wmt-edw-sandbox.LMD_DA.INHOME_STORE_LAUNCH_DATES_MANUAL` group by 1,2 order by 1,2
+*/
+
+CREATE OR REPLACE TABLE `wmt-tebi.Tanmoy.INHOME_LAUNCH_DASH_BASE` AS
+SELECT
+  SL.STORE
+  , SL.CBSA
+  , SL.type AS Store_type
+  , MARKET.market AS MARKET
+  , DENS.Region_NUM AS REGION
+/*  , OBU.REGION*/
+  , SL.InHome_Launch_Date
+  , Launch.launcher as Launcher
+  , SL.InHome_Status
+  , COUNT (DISTINCT CASE WHEN TRIM (LOWER(REQ_STATUS)) = 'open' THEN d.requisition_id END) AS req_count
+  , COUNT (DISTINCT CASE WHEN e.SMART_JOB = '1-930-1481' THEN e.WIN_NBR END) AS associates_in_role
+  , COUNT (DISTINCT CASE WHEN a.TASK_STATUS_CODE=1 and a.RESP_TXT not like '2004- CBC: Not Eligible at this Time - Not Eligible at this Time%'
+    and (a.SMART_JOB IS NULL OR a.smart_job != '1-930-1481') and DATE(OFFER_Date)>current_date-45 THEN a.WIN_NBR END) AS Associate_pending_contingencies
+  , COUNT (DISTINCT CASE WHEN a.TASK_STATUS_CODE=3 and a.SPECIMEN_DISP_DESC = 'NEGATIVE' AND (a.RESP_TXT LIKE '2003- CBC: Eligible - Eligible' OR  a.RESP_TXT LIKE '2003- CBC: Eligible- Eligible') AND a.smart_job != '1-930-1481' THEN a.WIN_NBR END) AS Associate_completed_contingencies_and_waiting_for_start_date
+  , COUNT (DISTINCT b.store_nbr||b.win_nbr) AS workday_exceptions
+  , COUNT (DISTINCT CASE WHEN c.SMART_JOB = '1-930-1481' AND c.TENURE < 0.5 THEN c.win_nbr END) as role_w_tenure_less_than_1
+  , COUNT (DISTINCT CASE WHEN c.SMART_JOB = '1-930-1481' AND c.HAS_SECONDARY = 'N' THEN c.win_nbr END) AS role_wo_secondary
+FROM `wmt-edw-sandbox.LMD_DA.INHOME_STORE_LAUNCH_DATES_MANUAL_2` AS SL
+LEFT JOIN `wmt-tebi.inhome.store_launcher` AS Launch
+  on SL.STORE = Launch.store
+--LEFT JOIN `wmt-gdap-dl-sec-lmd-prod.inhome_db.store` STORE ON SL.STORE = STORE.ID
+--LEFT JOIN `wmt-gdap-dl-sec-lmd-prod.inhome_db.market` MARKET ON STORE.MARKET_ID = MARKET.ID
+LEFT JOIN `wmt-edw-sandbox.LMD_DA.Inhome_store_list_NI` AS Market
+  ON SL.store = Market.store_id
+--LEFT JOIN `wmt-edw-sandbox.r0m00jp.DENS_Master_Alignment` AS DENS
+LEFT JOIN `wmt-tebi.common.DENS_Master_Alignment` as DENS
+	ON DENS.store_num = SL.store
+/*LEFT JOIN `wmt-edw-prod.WW_SUPPLY_CHAIN_DL_VM.ORG_SHIP_NODE` AS OBU
+  ON OBU.WM_DSTRBTR_NO = SL.STORE
+  AND OBU.ORG_TYPE_CD = 'STORE'*/
+LEFT JOIN
+  (
+    SELECT CUR_SMART_JOB as smart_job, WIN_NBR, STORE_NBR, SPECIMEN_DISP_DESC, RESP_TXT, OFFER_DATE, TASK_STATUS_CODE
+    FROM `wmt-us-assoc-analytics-prod.Adhoc.VW_InHome_Combined_Roster`
+    WHERE win_nbr||OFFER_DATE IN
+      (
+        SELECT win_nbr||offer_date
+        FROM
+          (
+            SELECT win_nbr, MAX(offer_date) AS offer_date
+            FROM `wmt-us-assoc-analytics-prod.Adhoc.VW_InHome_Combined_Roster`
+            GROUP BY 1
+          )
+      )
+    GROUP BY 1, 2, 3, 4, 5,6,7
+  ) AS a
+  ON SL.store = CAST (a.STORE_NBR AS INT)
+LEFT JOIN
+  (
+    SELECT store_nbr, win_nbr
+    FROM `wmt-us-assoc-analytics-prod.Adhoc.VW_InHome_Roster`
+    WHERE store_nbr||win_nbr NOT IN
+      (
+        SELECT store_nbr||win_nbr
+        FROM `wmt-us-assoc-analytics-prod.Adhoc.VW_InHome_Combined_Roster`
+        GROUP BY 1
+      )
+    GROUP BY 1,2
+  ) AS b
+  ON SL.store = CAST (b.STORE_NBR AS INT)
+LEFT JOIN `wmt-us-assoc-analytics-prod.Adhoc.VW_InHome_Roster` AS c
+  ON SL.store = CAST (c.STORE_NBR AS INT64)
+LEFT JOIN `wmt-us-assoc-analytics-prod.Adhoc.VW_InHome_Req` AS d
+  ON SL.store = CAST (d.STORE_NBR AS INT)
+LEFT JOIN `wmt-us-assoc-analytics-prod.Adhoc.VW_InHome_Roster` AS e
+  ON SL.store = CAST (e.STORE_NBR AS INT)
+WHERE SL.InHome_Status != 'Permanently Closed'
+GROUP BY 1, 2, 3, 4, 5, 6, 7, 8;
+
+--
+
+CREATE OR REPLACE TABLE `wmt-tebi.Tanmoy.INHOME_Associate_Info` AS
+WITH
+subquery_1 AS (
+SELECT
+  SMART_JOB
+  , store_nbr
+  , win_nbr
+  , ASC_WORK_EMAIL
+  , HAS_SECONDARY
+  , EMPLOY_STAT_CODE
+  , TENURE
+  , 'No' AS Work_day_Exception 
+FROM `wmt-us-assoc-analytics-prod.Adhoc.VW_InHome_Roster` AS Roster
+--LEFT JOIN `wmt-edw-sandbox.LMD_DA.Inhome_Store_Launcher_data` Launch on Roster.store_nbr  = cast(Launch.store_id as string)
+WHERE store_nbr||win_nbr IN
+  (
+    SELECT store_nbr||win_nbr
+    FROM `wmt-us-assoc-analytics-prod.Adhoc.VW_InHome_Combined_Roster`
+  )
+			
+UNION ALL
+
+SELECT
+  SMART_JOB
+  , store_nbr
+  , win_nbr
+  , ASC_WORK_EMAIL
+  , HAS_SECONDARY
+  , EMPLOY_STAT_CODE
+  , TENURE
+  , 'YES' AS Work_day_Exception 
+FROM `wmt-us-assoc-analytics-prod.Adhoc.VW_InHome_Roster` AS Roster
+--LEFT JOIN `wmt-edw-sandbox.LMD_DA.Inhome_Store_Launcher_data` Launch on Roster.store_nbr  = cast(Launch.store_id as string)
+WHERE store_nbr||win_nbr NOT IN
+  (
+    SELECT store_nbr||win_nbr
+    FROM `wmt-us-assoc-analytics-prod.Adhoc.VW_InHome_Combined_Roster`
+  )
+), subquery_2 AS (
+SELECT
+  subquery_1.*
+  , Combined.AWARD_2_DT AS Right_AWRD_DT
+  , driver.SNAPSHOT_EFF_START_DT
+  , CASE
+    WHEN driver.DRVR_USER_ID IS NOT NULL THEN 'Y'
+    WHEN driver.DRVR_USER_ID IS NULL THEN 'N'
+    END AS in_dispatcher
+  , CASE
+    WHEN driver.DRVR_ACTV_IND = 1 THEN 'Y'
+    WHEN driver.DRVR_ACTV_IND = 0 THEN 'N'
+    ELSE NULL
+    END AS active_in_dispatcher
+  , driver.MARKET_NM AS driver_spark_zone
+  , stores.DLVR_AREA_NM AS store_spark_zone
+  , ROW_NUMBER() OVER (PARTITION BY subquery_1.WIN_NBR ORDER BY driver.SNAPSHOT_EFF_START_DT DESC) AS ranking
+FROM subquery_1
+LEFT JOIN `wmt-us-assoc-analytics-prod.Adhoc.VW_InHome_Combined_Roster` AS Combined
+  ON CAST (Combined.win_nbr AS STRING) = subquery_1.win_nbr
+LEFT JOIN `wmt-edw-prod.WW_SUPPLY_CHAIN_DL_SECURE.DRVR` AS driver
+/* DRVR: skip first 3 characters "us\" and subquery_1: return everything before "@" */
+  ON SUBSTR (driver.DRVR_USER_ID, 4) = REGEXP_EXTRACT (subquery_1.ASC_WORK_EMAIL, r'^[a-zA-Z0-9_.+-]+')
+LEFT JOIN `wmt-edw-prod.WW_SUPPLY_CHAIN_DL_VM.LAST_MI_DLVR_STORE_HIST` AS stores
+  ON stores.STORE_NBR = CAST (subquery_1.store_nbr AS INT)
+  AND stores.CURR_IND = 1
+GROUP BY 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14
+)
+SELECT
+  SMART_JOB
+  , store_nbr
+  , win_nbr
+  , ASC_WORK_EMAIL
+  , HAS_SECONDARY
+  , EMPLOY_STAT_CODE
+  , TENURE
+  , Work_day_Exception 
+  , Right_AWRD_DT
+  , in_dispatcher
+  , active_in_dispatcher
+  , driver_spark_zone
+  , store_spark_zone
+FROM subquery_2
+WHERE ranking = 1;
+
+--
+
+CREATE OR REPLACE TABLE `wmt-tebi.Tanmoy.INHOME_Launch_final_table_1` AS
+SELECT
+  DB.*
+  --,DB.In_process_associates - DB.associate_screen_test_but_not_in_job_code 
+  -- DB.Associate_pending_contingencies AS Associates_in_Process
+  , AI.smart_job
+  , AI.win_nbr
+  , AI.ASC_WORK_EMAIL
+  , AI.HAS_SECONDARY
+  , AI.EMPLOY_STAT_CODE
+  , AI.TENURE
+  , AI.Work_day_Exception
+--  , AI.Right_AWRD_DT -- Add
+  , AI.in_dispatcher
+  , AI.active_in_dispatcher
+  , AI.driver_spark_zone
+  , AI.store_spark_zone
+  , CASE WHEN store_type='WNM' then replace(store.DGTL_COACH_EMAIL_ID,'digital-coach','operations-manager') else store.DGTL_COACH_EMAIL_ID END as email
+  , store.REGNL_MGR_EMAIL_ID
+  , store.MARKET_MGR_EMAIL_ID
+  , store.CORE_BASE_STAT_AREA_CD
+  , store.MARKET_DGTL_OPS_LD_NM
+  , store.MARKET_DGTL_OPS_LD_EMAIL_ID
+  , store.STORE_MGR_EMAIL_ID
+  , store.PPL_LD_EMAIL_ID
+  , store.DGTL_COACH_EMAIL_ID
+  , store.MARKET_HMN_RESRC_MGR_EMAIL_ID
+  , store.MARKET_HMN_RESRC_MGR_NM
+  , store.REGNL_HMN_RESRC_MGR_EMAIL_ID
+  , store.REGNL_HMN_RESRC_MGR_NM
+  , store.DLVR_NET_MGR_EMAIL_ID
+  , store.market_id
+  , store.SUBDIV_NM as BU_Name
+  , TS.PPE_MAIN AS Date
+  , TS.turnover
+  , TS.Avg_HC
+  , T.Turnover AS Overall_TO
+FROM `wmt-tebi.Tanmoy.INHOME_LAUNCH_DASH_BASE` AS DB 
+LEFT JOIN `wmt-tebi.Tanmoy.INHOME_Associate_Info` AS AI
+  ON CAST (DB.Store AS STRING) = AI.store_nbr
+LEFT JOIN `wmt-edw-prod.WW_SUPPLY_CHAIN_DL_VM.LAST_MI_DLVR_STORE_HIST` AS store
+  ON store.STORE_NBR = DB.Store
+  AND store.CURR_IND = 1
+LEFT JOIN `wmt-us-assoc-analytics-prod.ARS_EXTERNAL_REQUEST_ENT.VW_InHome_Turnover_Store` AS TS
+  ON store.STORE_NBR = TS.STORE_NBR
+LEFT JOIN `wmt-us-assoc-analytics-prod.ARS_EXTERNAL_REQUEST_ENT.VW_InHome_Turnover` AS T
+  ON T.PPE_MAIN = TS.PPE_MAIN;
+
+--
+
+-- Summary dashboard in the workbook
+CREATE OR REPLACE TABLE `wmt-tebi.Tanmoy.INHOME_Launch_Dashboard_Summary` AS
+SELECT
+  A.store
+  , A.inhome_status
+  , A.InHome_Launch_Date
+  , A.InHome_End_Date
+  , B.wm_year_nbr
+  , A.cbsa
+  , C.WIN_NBR
+  , C.TENURE
+FROM `wmt-edw-sandbox.LMD_DA.INHOME_STORE_LAUNCH_DATES_MANUAL_2` AS A
+LEFT JOIN `wmt-tebi.common.report_calendar_by_day` AS B
+  ON B.calendar_date = A.InHome_Launch_Date
+LEFT JOIN `wmt-us-assoc-analytics-prod.Adhoc.VW_InHome_Roster` AS C
+  ON CAST (C.STORE_NBR AS INT64) = A.store;
+
+--
+
+CREATE OR REPLACE TABLE `wmt-tebi.Tanmoy.INHOME_Launch_Dashboard_Surveys` AS
+SELECT
+  RSPNS_VAL
+  , COUNT (DISTINCT SRC_RSPNS_ID) AS Responses
+  , DATETIME (DATETIME_TRUNC (CURRENT_TIMESTAMP(), SECOND), "US/Eastern") AS refresh_ts_et
+FROM `wmt-edw-prod.WW_SUPPLY_CHAIN_DL_VM.LAST_MI_DLVR_SURVY_RSPNS`
+WHERE SURVEY_ID = 228
+  AND RSPNS_DT > '2022-04-13'
+  AND SURVEY_QSTN_ID = 16470368158490
+GROUP BY 1;
+
+---calculating number of days not staffed
+
+CREATE OR REPLACE temp table daily_INHOME_LAUNCH_DASH_BASE AS (
+select 
+store,
+CASE 
+WHEN STORE IN (100, 5260) THEN 8
+WHEN STORE IN (54, 144, 234, 277, 284, 359, 472, 541, 622, 805
+	, 857, 905, 943, 967, 988, 994, 1004, 1015, 1087, 1177
+    , 1213, 1273, 1377, 1381, 1413, 1514, 1597, 1739, 1770
+    , 1833, 1883, 1977, 1988, 2038, 2281, 2307, 2483, 2588
+    , 2616, 2651, 2734, 2740, 2803, 2834, 2892, 3225, 3308
+    , 3387, 3418, 3520, 3620, 3639, 3700, 3751, 3888, 4108
+    , 4240, 4260, 4451, 4475, 4644, 5036, 5070, 5261, 5269
+    , 5316, 5447, 5644, 5686, 5717, 5752, 5753, 5763, 5880
+) THEN 6
+ELSE 4
+END headcount,
+sum(associates_in_role) as associates 
+from  `wmt-tebi.Tanmoy.INHOME_LAUNCH_DASH_BASE`
+group by 1
+);
+
+-- CREATE OR REPLACE table `wmt-tebi.Tanmoy.store_data` AS
+-- select
+--   current_date ('US/Central')-1 report_date
+--   , STORE
+--   , headcount
+--   , associates
+-- from daily_INHOME_LAUNCH_DASH_BASE
+-- ;
+
+insert into `wmt-tebi.Tanmoy.store_data`
+select
+  current_date ('US/Central') as report_date
+  , STORE
+  , headcount
+  , associates
+from daily_INHOME_LAUNCH_DASH_BASE
+;
+
+CREATE OR REPLACE table `wmt-tebi.Tanmoy.store_below_headcount` AS
+WITH store_status AS (
+    SELECT
+        store,
+        report_date,
+        headcount,
+        associates,
+        CASE 
+            WHEN associates < headcount THEN 1 
+            ELSE 0 
+        END AS below_headcount
+    FROM
+         `wmt-tebi.Tanmoy.store_data`
+),
+status_change AS (
+    SELECT
+        store,
+        report_date,
+        headcount,
+        associates,
+        below_headcount,
+        LAG(below_headcount, 1, 0) OVER (PARTITION BY store ORDER BY report_date) AS previous_below_headcount
+    FROM
+        store_status
+),
+reset_flags AS (
+    SELECT
+        store,
+        report_date,
+        headcount,
+        associates,
+        below_headcount,
+        previous_below_headcount,
+        CASE
+            WHEN below_headcount = 1 AND (previous_below_headcount = 0 OR previous_below_headcount IS NULL) THEN 1
+            ELSE 0
+        END AS start_new_count
+    FROM
+        status_change
+),
+cumulative_counts AS (
+    SELECT
+        store,
+        report_date,
+        headcount,
+        associates,
+        below_headcount,
+        start_new_count,
+        SUM(start_new_count) OVER (PARTITION BY store ORDER BY report_date) AS current_period
+    FROM
+        reset_flags
+)
+SELECT
+        store,
+        current_period,
+        MAX(report_date) AS period_end_date,
+        SUM(CASE WHEN below_headcount = 1 THEN 1 ELSE 0 END) AS days_below_headcount
+    FROM    cumulative_counts
+GROUP BY
+        store, current_period
+ORDER BY
+        store, current_period
+;
+
+DELETE FROM `wmt-tebi.Tanmoy.store_data`
+WHERE store IN (
+    SELECT store
+    FROM `wmt-tebi.Tanmoy.store_below_headcount`
+    where days_below_headcount=0
+);
+
+CREATE OR REPLACE TABLE `wmt-tebi.Tanmoy.INHOME_Launch_final_table` AS
+ select a.* , b.* except(store)
+ from  `wmt-tebi.Tanmoy.INHOME_Launch_final_table_1`  a 
+ left join `wmt-tebi.Tanmoy.store_below_headcount` b
+ on a.store=b.store
+
+
+-- end if;
+
+/* end */

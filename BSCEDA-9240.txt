@@ -1,0 +1,145 @@
+-- Dex - Dashboard code recreated on 03-18-2024--- 
+DECLARE days INT64 DEFAULT (select datetime_diff(current_date('US/Central'), '2022-02-01', day));
+CREATE OR REPLACE TABLE `wmt-driver-insights.LMD_DA.VOL_DEX_DB` AS 
+(
+WITH DEX_DATA AS 
+(
+SELECT 
+	A.SALES_ORDER_NUM,
+	A.po_num,
+	A.TRIP_ID,
+	B.CATLG_ITEM_ID,
+	B.DEX_ITEM_IND,
+	A.Slot_DT,
+	A.WM_WK,
+	A.fulfilment_type,
+	A.carrier_org_nm,
+	A.Store_id,
+	A.STATE_CD,
+	A.CBSA,
+	A.Spark_ZONE,
+	A.CUST_ZIP5,
+	A.DEX_FLAG,
+	A.CARRIER_DLVR_TS_TZ,
+	A.ENR_RETURN_TS_TZ,
+	B.DLVR_AMT,
+  A.NPS_Promoters,
+  A.NPS_Detractors,
+	A.NPS_Total_Respondents,
+  A.DCSAT_promoters,
+  A.DCSAT_Total_respondents,
+	CSAT.CSAT_Rating,
+	
+
+FROM `wmt-driver-insights.LMD_DA.SPARK_DELIVERY_DS_ALL_FINAL` A
+	LEFT JOIN 
+		(select 
+			SALES_ORDER_NUM, 
+			PO_NUM, 
+			F36.CATLG_ITEM_ID AS CATLG_ITEM_ID,
+			DLVR_AMT, 
+			DLVR_QTY,
+			CASE WHEN IH.CATLG_ITEM_ID IS NOT NULL THEN 1 ELSE 0 END AS DEX_ITEM_IND
+			from `wmt-edw-prod.WW_MB_DL_VM.STORE_FULFMT_ORDER_ITEM_360` F36 
+				LEFT JOIN 
+					(select distinct CATLG_ITEM_ID from `wmt-edw-prod.WW_PRODUCT_DL_VM.ITEM_HAT_HRCHY`
+								where ORDER_DEPT_NBR = 40
+								and   upper(DEPT_CATG_DESC) in ('COUGH COLD FLU','ALLERGY', 'PEDIATRICS AND HUMIDIFIERS')
+					and upper(DEPT_SUBCATG_DESC) in ('COLD AND FLU','SORE THROAT', 'COUGH', 'PED CCF')
+					and upper(FINELINE_DESC) in ('DEX CCF','DEX SORE THROAT', 'DEX COUGH', 'PED DEXTROMETHORPHAN')
+					) IH ON F36.CATLG_ITEM_ID = IH.CATLG_ITEM_ID
+
+			 WHERE ORDER_PLCD_LCL_DT between  DATE_SUB(CURRENT_DATE("US/Pacific"), INTERVAL days DAY)  AND  CURRENT_DATE("US/Pacific")
+		) B
+	ON (A.SALES_ORDER_NUM||coalesce(A.po_num,'0')) = (B.SALES_ORDER_NUM||COALESCE(B.PO_NUM, '0'))
+	LEFT JOIN 
+		(select po_num, AVG(Ratings) AS CSAT_Rating FROM 
+			(
+			SELECT
+			TRIM(REGEXP_REPLACE(SR.SRC_RSPNS_ID, r' .*', '')) AS PO_NUM,
+      case when LOWER(TRIM(SR.CHOICE_TXT)) in ('rating') then CAST(REGEXP_EXTRACT(SR.RSPNS_VAL, r'\d+') AS NUMERIC) end as ratings,
+			FROM `wmt-edw-prod.WW_MB_DL_VM.OPD_SURVEY_RSPNS` as SR
+			) 
+			group by 1
+		) CSAT
+	ON A.po_num=CSAT.PO_NUM
+	WHERE Slot_DT >= '2022-01-01'
+)
+
+SELECT 
+	Slot_DT,
+	WM_WK,
+	fulfilment_type,
+	carrier_org_nm,
+	Store_id,
+	STATE_CD,
+	Spark_ZONE,
+	CUST_ZIP5,
+	CSAT_Rating,
+	COUNT ( CASE WHEN DEX_FLAG=1 AND NPS_Promoters = 1 THEN NPS_Promoters END) AS NPS_Promoters,
+	COUNT ( CASE WHEN DEX_FLAG=1 AND NPS_Detractors = 1 THEN NPS_Detractors END) AS NPS_Detractors,
+	COUNT ( CASE WHEN DEX_FLAG=1 AND NPS_Total_Respondents = 1 THEN NPS_Total_Respondents END) AS NPS_Total_Respondents,
+	SUM(CASE WHEN DEX_FLAG = 1 AND CARRIER_DLVR_TS_TZ IS NOT NULL THEN DLVR_AMT ELSE NULL END) AS TOTAL_SALES_WITH_DEX, 
+	COUNT ( DISTINCT (CASE WHEN DEX_FLAG = 1 THEN SALES_ORDER_NUM||PO_NUM ELSE NULL END)) AS DEX_ORDERS,
+	COUNT( DISTINCT ((SALES_ORDER_NUM))) AS TOTAL_ORDERS,
+	SUM(CASE WHEN DEX_ITEM_IND = 1 THEN DLVR_AMT ELSE NULL END) AS DEX_SALES, 
+	SUM( CASE WHEN CARRIER_DLVR_TS_TZ IS NOT NULL THEN DLVR_AMT ELSE NULL END) AS TOTAL_SALES,
+	COUNT ( DISTINCT (CASE WHEN DEX_FLAG = 1 AND CARRIER_DLVR_TS_TZ IS NOT NULL THEN (SALES_ORDER_NUM||po_num||TRIP_ID) ELSE NULL END )) AS DEX_DELIVERIES, 
+	COUNT ( DISTINCT (CASE WHEN CARRIER_DLVR_TS_TZ IS NOT NULL THEN (SALES_ORDER_NUM||po_num||TRIP_ID) ELSE NULL END)) AS TOTAL_DELIVERIES,
+	COUNT ( DISTINCT ( CASE WHEN DEX_FLAG = 1 AND ENR_RETURN_TS_TZ IS NOT NULL THEN (SALES_ORDER_NUM||po_num||TRIP_ID) ELSE NULL END)) DEX_RETURNS
+FROM DEX_DATA
+GROUP BY 1,2,3,4,5,6,7,8,9
+);
+
+---Dex violation Table----
+
+CREATE OR REPLACE TABLE `wmt-driver-insights.LMD_DA.DEX_VIOLATION` AS
+(
+SELECT 
+	a.SLOT_DT,
+	a.store_id,
+	a.Spark_zone,
+	a.sales_order_num,a.po_num,a.trip_id,
+	a.DRVR_USER_ID,a.state_cd,a.first_assgn_carrier_nm,a.DEX_FLAG,
+	a.carrier_dlvr_ts_tz as Delivered_TS , a.RETURNED_TS_TZ,a.ENR_RETURN_TS_TZ, 
+	a.STS_DESC as Status,
+	DLVR_PROOF_TYPE_NM,
+	CUST_ID_SCAN_SRC_TYPE_NM,
+	CUST_ID_SCAN_FAIL_RSN_TXT,
+
+	CASE 
+		WHEN a.STS_DESC = 'Cancelled' THEN NULL
+		WHEN CUST_ID_SCAN_SRC_TYPE_NM IS NOT NULL THEN 'Y' 
+		ELSE 'N' 
+	END AS Customer_Age_Verification,
+
+	CASE 
+		WHEN a.STS_DESC = 'Cancelled' OR a.RETURNED_TS_TZ IS NOT NULL OR a.ENR_RETURN_TS_TZ IS NOT NULL THEN 'N/A'
+		WHEN DLVR_PROOF_TYPE_NM IS NOT NULL AND a.carrier_dlvr_ts_tz IS NOT NULL THEN 'Y' 
+		ELSE 'N' 
+	END AS Customer_Signature,
+
+	CASE 
+		WHEN a.carrier_dlvr_ts_tz IS NOT NULL AND CUST_ID_SCAN_SRC_TYPE_NM IS NULL AND DLVR_PROOF_TYPE_NM IS NULL THEN 'Customer Age & Signature Violation' 
+		WHEN a.carrier_dlvr_ts_tz IS NOT NULL AND CUST_ID_SCAN_SRC_TYPE_NM IS NULL AND DLVR_PROOF_TYPE_NM IS NOT NULL THEN 'Customer Age Violation' 
+		WHEN a.carrier_dlvr_ts_tz IS NOT NULL AND CUST_ID_SCAN_SRC_TYPE_NM IS NOT NULL AND DLVR_PROOF_TYPE_NM IS NULL THEN 'Customer Signature Violation' 
+	END AS Violation_Reason,
+
+FROM  `wmt-driver-insights.LMD_DA.SPARK_DELIVERY_DS_ALL_FINAL` a
+ LEFT JOIN
+	(SELECT 
+		SRC_SALES_ORDER_NUM,
+		PO_NUM,
+		TRIP_ID, 
+		max(CUST_ID_SCAN_STATUS_NM) CUST_ID_SCAN_STATUS_NM ,
+		max(CUST_ID_SCAN_FAIL_RSN_TXT) as CUST_ID_SCAN_FAIL_RSN_TXT,
+		max(CUST_ID_SCAN_SRC_TYPE_NM) CUST_ID_SCAN_SRC_TYPE_NM,
+		max(DLVR_PROOF_TYPE_NM) DLVR_PROOF_TYPE_NM
+		
+	FROM `wmt-edw-prod.WW_SUPPLY_CHAIN_DL_SECURE.LAST_MI_DLVR_TRK_STATUS`
+		WHERE SRC_CRE_DT >= '2023-02-01'
+	GROUP BY 1,2,3
+	) b ON a.sales_order_num=b.SRC_SALES_ORDER_NUM and a.po_num=b.po_num and a.trip_id = b.trip_id
+	
+	WHERE slot_dt >= '2023-02-01' AND DEX_FLAG=1 
+	)

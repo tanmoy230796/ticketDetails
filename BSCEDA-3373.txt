@@ -1,0 +1,112 @@
+CREATE OR REPLACE TABLE `wmt-tebi.Tanmoy.NPS_OSAT` AS
+with
+base as
+  (
+    select
+      SURVY_CMPLT_DT as calendar_date
+      , store
+      , survey_sales_order_num
+      , sum (osat_rating) as total_osat_csat
+      , count (distinct SURVY_RSPNS_ID) as nps_responses
+      , count (distinct case when nps_rating >= 9 then SURVY_RSPNS_ID end) as nps_promoters
+      , count (distinct case when nps_rating <= 6 then SURVY_RSPNS_ID end) as nps_detractors
+    from /* aggregate the base data first in case of duplicates */
+      (
+        select
+          SURVY_RSPNS_ID
+          , CAST (SALES_ORDER_NBR AS STRING) AS SALES_ORDER_NBR
+          , SURVY_CMPLT_DT
+          , coalesce (DLVR_STORE_NBR, CURBSIDE_PCKUP_STORE_NBR) as store
+          , RECOMD_RATG_NBR as nps_rating
+          , OVRL_SAT_RATG_NBR as osat_rating
+          , CAST(CASE WHEN sales_order_nbr is not null and OVRL_SAT_RATG_NBR is not null then SALES_ORDER_NBR else null end AS STRING) survey_sales_order_num
+        from `wmt-edw-prod.WW_SURVEY_RSPNS_DL_VM.GLS_SURVY_RSPNS`
+        where SURVY_CMPLT_DT >= '2023-01-28'
+          and GLS_FULFMT_TYPE_DESC = 'INHOME'
+        group by 1, 2, 3, 4, 5 ,6, 7
+      )
+    group by 1, 2, 3
+  )
+select /* base data above and joins below for additional attributes */
+  base.*
+  , cal.WM_YEAR_WK_NBR as walmart_week
+  , concat (cal.CAL_YEAR_NBR, '-', lpad (cast (cal.CAL_MONTH_NBR as string), 2, '0'), '-', cal.CAL_MONTH_ABBR) as calendar_month
+  , concat (cal.WM_YEAR_NBR, '-', cal.WM_QTR_NAME) as walmart_quarter
+  , dens.CBSA
+  , dens.BU_Name
+  , datetime_trunc (current_datetime ('US/Central'), second) as refresh_ts_ct
+from base
+left join `wmt-edw-prod.US_CORE_DIM_VM.CALENDAR_DIM` as cal
+  on cal.CALENDAR_DATE = base.calendar_date
+left join `wmt-tebi.common.DENS_Master_Alignment` as dens
+  on dens.Store_NUM = base.store
+  and dens.Store_Type in ('W/M', 'WNM', 'SUP') /* optional performance */
+group by 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11,12,13 /* group by incase of duplicates */
+;
+
+CREATE OR REPLACE TABLE `wmt-tebi.Tanmoy.CSAT` AS
+with
+base as
+  (
+    select
+      SURVY_CMPLT_DT as calendar_date
+      , store
+      , survey_sales_order_num
+      , sum (csat_rating) as total_osat_csat
+      , null as nps_responses
+      , null as nps_promoters
+      , null as nps_detractors
+    from /* aggregate the base data first in case of duplicates */
+      (
+        select
+            SALES_ORDER_NBR
+          , SURVY_CMPLT_DT
+          , store_nbr as store
+          , CAST(cust_fulfmt_stsftn_ratg_val AS INT64) as csat_rating
+          , CASE WHEN sales_order_nbr is not null and cust_fulfmt_stsftn_ratg_val is not null then sales_order_nbr else null end survey_sales_order_num
+        from `wmt-edw-prod.WW_SURVEY_RSPNS_DL_HIGHSECURE.CUST_ORDER_STSFTN_SURVY`
+        where SURVY_CMPLT_DT >= '2023-01-28'
+          and fulfmt_type_desc = 'In Home Delivery'
+        group by 1, 2, 3, 4, 5
+      )
+    group by 1, 2, 3
+  )
+select /* base data above and joins below for additional attributes */
+  base.*
+  , cal.WM_YEAR_WK_NBR as walmart_week
+  , concat (cal.CAL_YEAR_NBR, '-', lpad (cast (cal.CAL_MONTH_NBR as string), 2, '0'), '-', cal.CAL_MONTH_ABBR) as calendar_month
+  , concat (cal.WM_YEAR_NBR, '-', cal.WM_QTR_NAME) as walmart_quarter
+  , dens.CBSA
+  , dens.BU_Name
+  , datetime_trunc (current_datetime ('US/Central'), second) as refresh_ts_ct
+from base
+left join `wmt-edw-prod.US_CORE_DIM_VM.CALENDAR_DIM` as cal
+  on cal.CALENDAR_DATE = base.calendar_date
+left join `wmt-tebi.common.DENS_Master_Alignment` as dens
+  on dens.Store_NUM = base.store
+  and dens.Store_Type in ('W/M', 'WNM', 'SUP') /* optional performance */
+group by 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11,12, 13 /* group by incase of duplicates */
+;
+ 
+CREATE OR REPLACE TABLE `wmt-tebi.Tanmoy.Customer_metrics` AS
+SELECT *
+FROM(
+  SELECT * 
+  from `wmt-tebi.Tanmoy.CSAT`
+  where walmart_week>202310
+  UNION ALL
+  SELECT *
+  from `wmt-tebi.Tanmoy.NPS_OSAT`
+  where walmart_week>202310
+  )
+
+;
+
+/*
+CSAT = sum (total csat) / sum (responses)
+
+NPS = % of promoters - % of detractors
+NPS = ((sum (promoters) / sum (responses)) * 100)   -   ((sum (detractors) / sum (responses) * 100))
+*/
+ 
+/* end */

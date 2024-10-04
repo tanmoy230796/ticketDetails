@@ -1,0 +1,121 @@
+--InHome vehicles
+CREATE OR REPLACE TABLE `wmt-tebi.Tanmoy.InHome_device_list` AS
+SELECT 
+  DISTINCT SERIAL_NUMBER, 
+  VIN,
+  FROM `wmt-edw-prod.US_SUPPLY_CHAIN_SCT_NONCAT_VM.GEOTAB_CORPORATE_DEVICE` AS t1,
+  UNNEST(DEVICE_GROUPS) as t2 
+  where t2.NAME in ('Store 5815',	'Store 3071',	'Store 3069',	'Store 4848',	'Store 4692',	'Store 5767',	'Store 5408',	'Store 4053',	'Store 5297',	'Store 5183',	'Store 4524',	'Store 998',	'Store 2442',	'Store 5180',	'Store 5207',	'Store 5308',	'Store 6172',	'Store 6500',	'Store 5119',	'Store 7174',	'Store 3156',	'Store 7174',	'Store 5427',	'Store 5421',	'Store 1552',	'Store 1613',	'Store 4477',	'Store 1322',	'Store 1849',	'Store 2472',	'Store 2793',	'Store 3503',	'Store 6789',	'Store 5063',	'Store 3700',	'Store 1191',	'Store 1288',	'Store 2137',	'Store 2845',	'Store 3182',	'Store 1953',	'Store 2058',	'Store 5118',	'Store 5254',	'Store 1132',	'Store 1498',	'Store 1558',	'Store 1842',	'Store 2704',	'Store 3304',	'Store 3305',	'Store 3658',	'Store 5320',	'Store 1321',	'Store 3889',	'Store 4458',	'Store 4499',	'Store 5046',	'Store 5743',	'Store 1096',	'Store 5927',	'Store 5313',	'Store 2616',	'Store 2600',	'Store 1161',	'Store 648',	'Store 3061',	'Store 2213',	'Store 1514',	'Store 1177',	'Store 805',	'Store 234',	'Store 1120',	'Store 2857',	'Store 184',	'Store 319',	'Store 573',	'Store 1014',	'Store 1094',	'Store 4553',	'Store 4590',	'Store 1151',	'Store 577',	'Store 1599',	'Store 2855',	'Store 3273',	'Store 2955',	'Store 4475',	'Store 4611',	'Store 7290',	'Store 5418',	'Store 5417',	'Store 4450',	'Store 3294',	'Store 526',	'Store 6931',	'Store 589',	'Store 1170',	'Store 144',	'Store 359',	'Store 54',	'Store 100',	'Store 4108',	'Store 5260',	'Store 5261',	'Store 622',	'Store 564',	'Store 3430',	'Store 2804',	'Store 2803',	'Store 1626',	'Store 389',	'Store 7326',	'Store 7294',	'Store 2734',	'Store 743',	'Store 544',	'Store 277',	'Store 212',	'Store 576',	'Store 472',	'Store 894',	'Store 992',	'Store 1597',	'Store 1099',	'Store 1221',	'Store 1507',	'Store 3283',	'Store 3492',	'Store 4321',	'Store 5947',	'Store 5717',	'Store 3763',	'Store 2612',	'Store 2201',	'Store 1015',	'Store 964',	'Store 512',	'Store 500',	'Store 2922',	'Store 5031',	'Store 1291',	'Store 3884',	'Store 5626',	'Store 5799',	'Store 3896',	'Store 5369',	'Store 5429',	'Store 5331',	'Store 4336',	'Store 2777',	'Store 2554',	'Store 1549',	'Store 1532',	'Store 1533',	'Store 5330',	'Store 6477',	'Store 5189',	'Store 3465',	'Store 3241',	'Store 2512',	'Store 4232',	'Store 5190',	'Store 5124',	'Store 2766',	'Store 1598',	'Store 2482',	'Store 2515',	'Store 3771',	'Store 5768',	'Store 3799',	'Store 1746',	'Store 1512',	'Store 1381',	'Store 2112',	'Store 2767',	'Store 5428',	'Store 3833',	'Store 2768',	'Store 1646',	'Store 3360',	'Store 3751',	'Store 4451',	'Store 6480',	'Store 5186',	'Store 3861',	'Store 2671',	'Store 1637',	'Store 1965',	'Store 3150',	'Store 3267',	'Store 4358',	'Store 5141',	'Store 5361',	'Store 1671',	'Store 2847',	'Store 4600',	'Store 592',	'Store 1167',	'Store 1551',	'Store 5669',	'Store 5432',	'Store 1515',	'Store 1571',	'Store 1678',	'Store 1650',	'Store 2452',	'Store 2658',	'Store 5463',	'Store 3018',	'Store 1273',	'Store 5123',	'Store 3582',	'Store 1896',	'Store 1434',	'Store 1200',	'Store 5334',	'Store 5137',	'Store 3313',	'Store 2892',	'Store 1689',	'Store 1492',	'Store 953',	'Store 5341',	'Store 4567',	'Store 4288',	'Store 3867',	'Store 1231',	'Store 905',	'Store 5049',	'Store 4284',	'Store 2751',	'Store 2125',	'Store 1308',	'Store 1252',	'Store 3566',	'Store 4208',	'Store 5763',	'Store 5350',	'Store 5235',	'Store 1686',	'Store 2207',	'Store 2307',	'Store 3232',	'Store 3568',	'Store 3589',	'Store 3620',	'Store 5233',	'Store 5957',	'Store 4734',	'Store 3824',	'Store 3533',	'Store 2752',	'Store 2223',	'Store 5192',	'Store 4393',	'Store 3652',	'Store 3081',	'Store 2735',	'Store 2464',	'Store 1881',	'Store 4309',	'Store 4202',	'Store 3712',	'Store 3587',	'Store 2457',	'Store 1988',	'Store 1760',	'Store 2697',	'Store 5884',	'Store 5435',	'Store 2119',	'Store 3728',	'Store 3473',	'Store 3351',	'Store 3350',	'Store 2884',	'Store 2592',	'Store 2483',	'Store 5070',	'Store 4557',	'Store 4356',	'Store 2838',	'Store 2050',	'Store 1584',	'Store 1560',	'Store 2593',	'Store 3180',	'Store 5686',	'Store 5162',	'Store 3523',	'Store 2951',	'Store 2950',	'Store 1660',	'Store 1563',	'Store 1941',	'Store 5930',	'Store 5641',	'Store 3248',	'Store 2242',	'Store 2082',	'Store 5807',	'Store 4132',	'Store 3477',	'Store 2609',	'Store 2110',	'Store 5644',	'Store 4171',	'Store 2517',	'Store 2218',	'Store 5954',	'Store 5154',	'Store 3522',	'Store 2948',	'Store 2886',	'Store 2292',	'Store 2251',	'Store 1574',	'Store 1624',	'Store 2557',	'Store 4317',	'Store 1815',	'Store 2001',	'Store 2985',	'Store 4238',	'Store 5337',	'Store 5701',	'Store 5215',	'Store 5859',	'Store 1882',	'Store 3143',	'Store 5725',	'Store 5304',	'Store 4324',	'Store 5423',	'Store 5306',	'Store 5269',	'Store 5259',	'Store 5258',	'Store 3788',	'Store 3655',	'Store 3356',	'Store 3355',	'Store 3354',	'Store 5605',	'Store 5604',	'Store 5602',	'Store 2226',	'Store 3176',	'Store 3175',	'Store 3083',	'Store 6178',	'Store 4747',	'Store 4196',	'Store 3128',	'Store 3126',	'Store 3019',	'Store 3172',	'Store 3173',	'Store 5349',	'Store 5332',	'Store 5257',	'Store 4275',	'Store 3845',	'Store 3844',	'Store 3315',	'Store 3314',	'Store 2632',	'Store 4174',	'Store 3123',	'Store 3023',	'Store 2486',	'Store 5611',	'Store 5610',	'Store 5600',	'Store 4762',	'Store 3132',	'Store 5603',	'Store 5601',	'Store 4134',	'Store 3101',	'Store 5982',	'Store 5981',	'Store 5980',	'Store 5683',	'Store 4759',	'Store 5109',	'Store 7347',	'Store 5624',	'Store 5614',	'Store 5613',	'Store 3594',	'Store 3419',	'Store 3392',	'Store 3341',	'Store 2981',	'Store 2979',	'Store 5657',	'Store 4182',	'Store 3198',	'Store 2995',	'Store 2974',	'Store 4415',	'Store 3661',	'Store 7262',	'Store 5327',	'Store 5824',	'Store 5021',	'Store 3870',	'Store 2977',	'Store 2976',	'Store 7361',	'Store 7357',	'Store 5353',	'Store 5094',	'Store 4618',	'Store 4468',	'Store 4466',	'Store 4465',	'Store 3542',	'Store 3509',	'Store 3452',	'Store 3340',	'Store 6170',	'Store 2835',	'Store 4056',	'Store 5314',	'Store 5286',	'Store 3615',	'Store 2875',	'Store 5102',	'Store 3703',	'Store 4561',	'Store 5005',	'Store 3599',	'Store 5043',	'Store 5945',	'Store 5719',	'Store 5615',	'Store 4826',	'Store 4617',	'Store 4563',	'Store 4498',	'Store 4140',	'Store 3935',	'Store 2930',	'Store 4546',	'Store 5759',	'Store 5758',	'Store 4560',	'Store 4441',	'Store 4380',	'Store 3104',	'Store 3011',	'Store 2406',	'Store 2392',	'Store 3066',	'Store 5826',	'Store 5622',	'Store 7307',	'Store 6894',	'Store 5179',	'Store 5132',	'Store 4425',	'Store 4211',	'Store 4197',	'Store 4142',	'Store 3162',	'Store 6548',	'Store 5760',	'Store 5988',	'Store 4580',	'Store 4504',	'Store 5876',	'Store 5670',	'Store 5654',	'Store 5221',	'Store 4141',	'Store 3414',	'Store 3161',	'Store 2391',	'Store 1523',	'Store 1525',	'Store 2295',	'Store 3869',	'Store 4191',	'Store 7032',	'Store 1424',	'Store 1524',	'Store 1969',	'Store 2808',	'Store 2821',	'Store 1631',	'Store 1682',	'Store 1773',	'Store 1811',	'Store 3214',	'Store 3265',	'Store 4623',	'Store 5488',	'Store 1688',	'Store 2529',	'Store 3216',	'Store 4064',	'Store 5253',	'Store 5922',	'Store 1833',	'Store 1852',	'Store 2520',	'Store 3588',	'Store 5343',	'Store 1968',	'Store 2045',	'Store 2577',	'Store 3780',	'Store 2279',	'Store 5382',	'Store 2412',	'Store 2436',	'Store 2850',	'Store 3720',	'Store 1841',	'Store 745',	'Store 3401',	'Store 3402',	'Store 3609',	'Store 3741',	'Store 3709',	'Store 3201',	'Store 1184',	'Store 3118',	'Store 4472',	'Store 3188',	'Store 3067',	'Store 2475',	'Store 1488',	'Store 3205',	'Store 1047',	'Store 787',	'Store 594',	'Store 1181',	'Store 1578',	'Store 2360',	'Store 5390',	'Store 3621',	'Store 878',	'Store 1314',	'Store 1373',	'Store 7185',	'Store 4436',	'Store 4185',	'Store 3462',	'Store 2941',	'Store 2154',	'Store 575',	'Store 548',	'Store 3389',	'Store 5252',	'Store 4558',	'Store 3786',	'Store 3388',	'Store 1720',	'Store 3403',	'Store 3471',	'Store 3611',	'Store 5814',	'Store 5275',	'Store 3748',	'Store 1586',	'Store 937',	'Store 618',	'Store 1606',	'Store 3659',	'Store 1458',	'Store 1469',	'Store 5363',	'Store 3461',	'Store 3207',	'Store 857',	'Store 563',	'Store 613',	'Store 860',	'Store 1079',	'Store 1182',	'Store 1391',	'Store 3310',	'Store 1172',	'Store 1173',	'Store 1444',	'Store 3309',	'Store 4444',	'Store 5054',	'Store 1082',	'Store 1083',	'Store 1090',	'Store 1219',	'Store 1225',	'Store 2920',	'Store 3308',	'Store 6978',	'Store 725',	'Store 779',	'Store 1245',	'Store 4593',	'Store 4237',	'Store 3733',	'Store 585',	'Store 1662',	'Store 5481',	'Store 5298',	'Store 5085',	'Store 1464',	'Store 1385',	'Store 1209',	'Store 5879',	'Store 4574',	'Store 2134',	'Store 2005',	'Store 1666',	'Store 1027',	'Store 1156',	'Store 631',	'Store 1244',	'Store 2265',	'Store 2687',	'Store 3191',	'Store 3192',	'Store 3222',	'Store 5487',	'Store 396',	'Store 644',	'Store 1130',	'Store 5317',	'Store 4554',	'Store 4219',	'Store 4163',	'Store 2991',	'Store 2133',	'Store 1253',	'Store 1129',	'Store 5147',	'Store 4503',	'Store 3631',	'Store 3285',	'Store 3284',	'Store 2978',	'Store 1801',	'Store 1455',	'Store 4509',	'Store 590',	'Store 220',	'Store 228',	'Store 963',	'Store 371',	'Store 5810',	'Store 3433',	'Store 3432',	'Store 3014',	'Store 896',	'Store 471',	'Store 284',	'Store 5416',	'Store 5080',	'Store 3274',	'Store 3044',	'Store 2834',	'Store 2649',	'Store 1178',	'Store 880',	'Store 807',	'Store 266',	'Store 5673',	'Store 5672',	'Store 3482',	'Store 3406',	'Store 2973',	'Store 2918',	'Store 1117',	'Store 202',	'Store 5311',	'Store 5211',	'Store 4627',	'Store 3286',	'Store 467',	'Store 206',	'Store 6963',	'Store 5889',	'Store 5092',	'Store 4240',	'Store 2996',	'Store 2427',	'Store 2105',	'Store 1216',	'Store 426',	'Store 217',	'Store 2667',	'Store 1118',	'Store 6300',	'Store 5866',	'Store 3777',	'Store 2926',	'Store 2883',	'Store 2463',	'Store 2086',	'Store 5480',	'Store 5479',	'Store 3569',	'Store 1185',	'Store 475',	'Store 5316',	'Store 5312',	'Store 4165',	'Store 3773',	'Store 2980',	'Store 972',	'Store 940',	'Store 8930',	'Store 5823',	'Store 3225',	'Store 3224',	'Store 1800',	'Store 1055',	'Store 789',	'Store 5987',	'Store 4298',	'Store 1837',	'Store 1279',	'Store 1103',	'Store 849',	'Store 744',	'Store 297',	'Store 5116',	'Store 3500',	'Store 3298',	'Store 1137',	'Store 194',	'Store 5388',	'Store 529',	'Store 5449',	'Store 3572',	'Store 3510',	'Store 2993',	'Store 2505',	'Store 915',	'Store 872',	'Store 546',	'Store 5959',	'Store 5612',	'Store 3425',	'Store 2724',	'Store 1062',	'Store 752',	'Store 3827',	'Store 3584',	'Store 3302',	'Store 3296',	'Store 2066',	'Store 772',	'Store 4512',	'Store 3640',	'Store 3226',	'Store 1409',	'Store 1040',	'Store 768',	'Store 5091',	'Store 5045',	'Store 4538',	'Store 4416',	'Store 3297',	'Store 2257',	'Store 703',	'Store 5287',	'Store 3390',	'Store 3213',	'Store 602',	'Store 351',	'Store 1313',	'Store 3112',	'Store 3279',	'Store 5144',	'Store 5245',	'Store 999',	'Store 2239',	'Store 2599',	'Store 3058',	'Store 3106',	'Store 3888',	'Store 5145',	'Store 765',	'Store 1347',	'Store 2404',	'Store 4055',	'Store 1198',	'Store 2864',	'Store 3057',	'Store 4131',	'Store 4162',	'Store 5146',	'Store 942',	'Store 800',	'Store 705',	'Store 5420',	'Store 4332',	'Store 2881',	'Store 1220',	'Store 908',	'Store 817',	'Store 5894',	'Store 5871',	'Store 4588',	'Store 3782',	'Store 955',	'Store 943',	'Store 890',	'Store 931',	'Store 1068',	'Store 174',	'Store 649',	'Store 3538',	'Store 5455',	'Store 5266',	'Store 3415',	'Store 1213',	'Store 1085',	'Store 994',	'Store 988',	'Store 967',	'Store 1087',	'Store 1541',	'Store 3348',	'Store 4260',	'Store 5301',	'Store 4446',	'Store 2176',	'Store 1436',	'Store 1916',	'Store 2789',	'Store 5882',	'Store 5911',	'Store 3858',	'Store 2963',	'Store 2962',	'Store 1589',	'Store 1517',	'Store 1398',	'Store 1387',	'Store 5932',	'Store 5325',	'Store 3625',	'Store 2987',	'Store 2946',	'Store 2591',	'Store 1851',	'Store 1845',	'Store 1349',	'Store 5912',	'Store 5671',	'Store 2814',	'Store 2727',	'Store 2091',	'Store 5218',	'Store 4690',	'Store 3372',	'Store 2796',	'Store 2081',	'Store 1712',	'Store 1536',	'Store 1513',	'Store 1390',	'Store 5964',	'Store 5220',	'Store 5036',	'Store 4681',	'Store 3418',	'Store 3197',	'Store 2740',	'Store 2627',	'Store 1960',	'Store 3463',	'Store 2387',	'Store 528',	'Store 769',	'Store 1004',	'Store 1171',	'Store 2459',	'Store 3370',	'Store 3474',	'Store 5264',	'Store 0528',	'Store 0769',	'Store 5727',	'Store 5300',	'Store 941',	'Store 580',	'Store 859',	'Store 968',	'Store 5035',	'Store 3387',	'Store 623',	'Store 2237',	'Store 4303',	'Store 3397',	'Store 3235',	'Store 3163',	'Store 1590',	'Store 1511',	'Store 819',	'Store 4063',	'Store 5347',	'Store 848',	'Store 2846',	'Store 1248',	'Store 6964',	'Store 950',	'Store 1561',	'Store 2322',	'Store 6807',	'Store 4435',	'Store 695',	'Store 7020',	'Store 5057',	'Store 2757',	'Store 682',	'Store 406',	'Store 5616',	'Store 5058',	'Store 4482',	'Store 3717',	'Store 710',	'Store 688',	'Store 659',	'Store 272',	'Store 741',	'Store 1466',	'Store 4635',	'Store 1194',	'Store 1319',	'Store 1320',	'Store 2932',	'Store 4223',	'Store 2310',	'Store 5022',	'Store 3167',	'Store 2706',	'Store 1163',	'Store 909',	'Store 553',	'Store 1353',	'Store 1342',	'Store 989',	'Store 911',	'Store 541',	'Store 4683',	'Store 1266',	'Store 1206',	'Store 1102',	'Store 935',	'Store 839',	'Store 5056',	'Store 2132',	'Store 1136',	'Store 1711',	'Store 2713',	'Store 5262',	'Store 4497',	'Store 1481',	'Store 1229',	'Store 2104',	'Store 1810',	'Store 1959',	'Store 2637',	'Store 8331',	'Store 5295',	'Store 2003',	'Store 2294',	'Store 4153',	'Store 3078',	'Store 2651',	'Store 5201',	'Store 5867',	'Store 5447',	'Store 3912',	'Store 5752',	'Store 3520',	'Store 3159',	'Store 1873',	'Store 1964',	'Store 2225',	'Store 2261',	'Store 2283',	'Store 1891',	'Store 2282',	'Store 2299',	'Store 5095',	'Store 2135',	'Store 2817',	'Store 2544',	'Store 2818',	'Store 4631',	'Store 1618',	'Store 2872',	'Store 2912',	'Store 3336',	'Store 3476',	'Store 5842',	'Store 1754',	'Store 2618',	'Store 2700',	'Store 4540',	'Store 5048',	'Store 1611',	'Store 1987',	'Store 2354',	'Store 2559',	'Store 2692',	'Store 2873',	'Store 3487',	'Store 4424',	'Store 5844',	'Store 1923',	'Store 1942',	'Store 2493',	'Store 2567',	'Store 3328',	'Store 5386',	'Store 2620',	'Store 5309',	'Store 1739',	'Store 2300',	'Store 3838',	'Store 4644',	'Store 2300',	'Store 1770',	'Store 1883',	'Store 1885',	'Store 4643',	'Store 1568',	'Store 2281',	'Store 2420',	'Store 2588',	'Store 2063',	'Store 2197',	'Store 2211',	'Store 3860',	'Store 1863',	'Store 2362',	'Store 3293',	'Store 3608',	'Store 5387',	'Store 2313',	'Store 1839',	'Store 1894',	'Store 2073',	'Store 2316',	'Store 5082',	'Store 1927',	'Store 2966',	'Store 1911',	'Store 2323',	'Store 2506',	'Store 3722',	'Store 1568',	'Store 5185',	'Store 3812',	'Store 2774',	'Store 2725',	'Store 2471',	'Store 2426',	'Store 5857',	'Store 5466',	'Store 5184',	'Store 3580',	'Store 2726',	'Store 2098',	'Store 1594',	'Store 5499',	'Store 3784',	'Store 3571',	'Store 3502',	'Store 2441',	'Store 2309',	'Store 1441',	'Store 4609',	'Store 3749',	'Store 2967',	'Store 2447',	'Store 2250',	'Store 1510',	'Store 1443',	'Store 1728',	'Store 5142',	'Store 3236',	'Store 2195',	'Store 1977',	'Store 5414',	'Store 1742',	'Store 1807',	'Store 3774',	'Store 5476',	'Store 2141',	'Store 2263',	'Store 3541',	'Store 4687',	'Store 3810',	'Store 2068',	'Store 2096',	'Store 2445',	'Store 2446',	'Store 3564',	'Store 5649',	'Store 2650',	'Store 2945',	'Store 5795',	'Store 1860',	'Store 3802',	'Store 5450',	'Store 5944',	'Store 2691',	'Store 1476',	'Store 5483',	'Store 5443',	'Store 3435',	'Store 2787',	'Store 1459',	'Store 828',	'Store 2956',	'Store 5442',	'Store 1420',	'Store 4405',	'Store 1898',	'Store 1848',	'Store 1553',	'Store 5352',	'Store 1814',	'Store 2215',	'Store 4286',	'Store 3400',	'Store 4531',	'Store 1596',	'Store 3790',	'Store 1401',	'Store 3601',	'Store 1497',	'Store 4529',	'Store 4049',	'Store 1556',	'Store 1256',	'Store 1998',	'Store 3725',	'Store 5617',	'Store 2204',	'Store 1938',	'Store 1681',	'Store 1737',	'Store 1897',	'Store 5485',	'Store 3004',	'Store 1892',	'Store 1404',	'Store 1228',	'Store 5199',	'Store 3891',	'Store 3893',	'Store 1735',	'Store 1668',	'Store 4641',	'Store 1413',	'Store 1531',	'Store 5060',	'Store 1377',	'Store 3434',	'Store 1761',	'Store 1418',	'Store 361',	'Store 256',	'Store 201',	'Store 2788',	'Store 2786',	'Store 1601',	'Store 1557',	'Store 923',	'Store 3795',	'Store 2059',	'Store 3228',	'Store 5241',	'Store 2233',	'Store 2756',	'Store 2357',	'Store 3035',	'Store 5753',	'Store 5968',	'Store 1825',	'Store 3573',	'Store 1904',	'Store 2015',	'Store 2038',	'Store 3077',	'Store 3639',	'Store 5880',	'Store 5969',	'Store 1619',	'Store 1673',	'Store 1731',	'Store 1744',	'Store 1813',	'Store 2785',	'Store 3280',	'Store 3842',	'Store 5282',	'Store 2164',	'Store 2405',	'Store 5027',	'Store 1966',	'Store 1909',	'Store 2107',	'Store 2355',	'Store 1993',	'Store 3607',	'Store 2674',	'Store 1985',	'Store 1861',	'Store 2087',	'Store 2882',	'Store 3498',	'Store 2643',	'Store 3364',	'Store 2198',	'Store 1472',	'Store 1855',	'Store 2448',	'Store 2642',	'Store 5992',	'Store 3513',	'Store 1577',	'Store 1999',	'Store 2274',	'Store 2352',	'Store 3102',	'Store 3209',	'Store 3624',	'Store 1588',	'Store 1879',	'Store 1914',	'Store 4340',	'Store 4392',	'Store 2077',	'Store 2708',	'Store 2094',	'Store 2245',	'Store 1747',	'Store 1853',	'Store 2028',	'Store 2842',	'Store 5193',	'Store 5425',	'Store 1862',	'Store 3464',	'Store 3796',	'Store 1805',	'Store 1832',	'Store 1915',	'Store 2181',	'Store 5096',	'Store 5156',	'Store 2253',	'Store 3516',	'Store 3947',	'Store 5023',	'Store 1700',	'Store 2479',	'Store 5886',	'Store 1762',	'Store 3535',	'Store 2103',	'Store 1970',	'Store 2122',	'Store 2128',	'Store 2336',	'Store 2095',	'Store 2157',	'Store 2366',	'Store 3560',	'Store 5448',	'Store 1749',	'Store 2130',	'Store 2330',	'Store 1753',	'Store 2142',	'Store 1967',	'Store 2174',	'Store 2386',	'Store 5278',	'Store 1940',	'Store 2056',	'Store 2152',	'Store 2370',	'Store 2844',	'Store 3583',	'Store 2874',	'Store 4474',	'Store 3218',	'Store 3537',	'Store 4137',	'Store 3757',	'Store 3801',	'Store 5628',	'Store 3053',	'Store 2550',	'Store 2927',	'Store 5461',	'Store 5462',	'Store 5929',	'Store 4176',	'Store 4221',	'Store 5935',	'Store 2385',	'Store 2516',	'Store 3525',	'Store 5041',	'AR Buffer Vans',	'AL Buffer Vans',	'GA Buffer Vans',	'CA Buffer Vans',	'CO Buffer Vans',	'FL Buffer Vans',	'IL Buffer Vans',	'IN Buffer Vans',	'KS Buffer Vans',	'KY Buffer Vans',	'LA Buffer Vans',	'MO Buffer Vans',	'NC Buffer Vans',	'NE Buffer Vans',	'NJ Buffer Vans',	'NY Buffer Vans',	'OH Buffer Vans',	'NV Buffer Vans',	'OK Buffer Vans',	'TN Buffer Vans',	'TX Buffer Vans',	'UT Buffer Vans',	'VA Buffer Vans',	'AZ Buffer Vans',	'RAM ProMaster Demo','InHome')
+;
+
+--Geotab Vehicle Utilization
+CREATE OR REPLACE TABLE `wmt-tebi.Tanmoy.geotab_vehicle_utilization` AS 
+SELECT  
+DEVICE_SERIAL_NUMBER, 
+VIN,
+calendar_date, 
+concat(wm_year_nbr,LPAD(CAST(wm_week_nbr AS STRING),2,'0')) as Walmart_week, 
+wm_month_name, 
+wm_year_nbr,
+SUM((safe_CAST(SUBSTRING(DRIVING_DURATION, 1, 2) AS INT64) * 60) + (safe_CAST(SUBSTRING(DRIVING_DURATION, 4, 2) AS INT64)) +
+(safe_CAST(SUBSTRING(DRIVING_DURATION, 7, 2) AS INT64) / 60.0)) AS TOTAL_ACTIVE_TIME,
+SUM((safe_CAST(SUBSTRING(IDLING_DURATION, 1, 2) AS INT64) * 60) + (safe_CAST(SUBSTRING(IDLING_DURATION, 4, 2) AS INT64)) +
+(safe_CAST(SUBSTRING(IDLING_DURATION, 7, 2) AS INT64) / 60.0)) AS TOTAL_IDLE_TIME,
+SUM(distance) AS TOTAL_DISTANCE_TRAVELLED,
+FROM `wmt-edw-prod.US_SUPPLY_CHAIN_SCT_NONCAT_VM.GEOTAB_CORPORATE_TRIP` A 
+LEFT JOIN `wmt-edw-prod.US_SUPPLY_CHAIN_SCT_NONCAT_VM.GEOTAB_CORPORATE_DEVICE` B
+ON A.DEVICE_SERIAL_NUMBER=B.SERIAL_NUMBER
+LEFT JOIN `wmt-tebi.common.report_calendar_by_day`  C  
+ON C.calendar_date = DATE(A.START) 
+WHERE DEVICE_SERIAL_NUMBER IN (SELECT SERIAL_NUMBER FROM `wmt-tebi.Tanmoy.InHome_device_list`)
+GROUP BY 1,2,3,4,5,6
+;
+
+--OOS
+CREATE OR REPLACE TABLE `wmt-tebi.Tanmoy.fleet_data` AS
+SELECT  DEVICE_SERIAL_NUMBER, calendar_date,sum(distance) as total_distance_travelled,
+FROM `wmt-edw-prod.US_SUPPLY_CHAIN_SCT_NONCAT_VM.GEOTAB_CORPORATE_TRIP` A left join `wmt-tebi.common.report_calendar_by_day`  B  ON B.calendar_date = DATE(A.START) group by 1,2 order by calendar_date desc ;
+ 
+delete  `wmt-tebi.Tanmoy.fleet_data`
+where calendar_date=current_date;
+ 
+ 
+CREATE OR REPLACE TABLE `wmt-tebi.Tanmoy.vehicle_status` as
+  (
+    select
+      DEVICE_SERIAL_NUMBER
+      , calendar_date
+      , total_distance_travelled
+      , case when total_distance_travelled <16.0934 then 1 else 0 end as below_headcount
+    from  `wmt-tebi.Tanmoy.fleet_data`
+  );
+ 
+CREATE OR REPLACE TABLE `wmt-tebi.Tanmoy.status_change` AS
+  (
+    select
+      DEVICE_SERIAL_NUMBER
+      , calendar_date
+      , total_distance_travelled
+      , below_headcount
+      , lag (below_headcount, 1, 0) over (partition by DEVICE_SERIAL_NUMBER order by calendar_date) as previous_below_headcount
+    from `wmt-tebi.Tanmoy.vehicle_status`
+  );
+ 
+CREATE OR REPLACE TABLE `wmt-tebi.Tanmoy.reset_flags` as
+  (
+    select
+      DEVICE_SERIAL_NUMBER
+      , calendar_date
+      , total_distance_travelled
+      , below_headcount
+      , previous_below_headcount
+      , case
+        when (below_headcount = 1 and previous_below_headcount = 0)
+          or (below_headcount = 0 and previous_below_headcount = 1)
+            then 1
+        else 0
+        end as start_new_count
+    from `wmt-tebi.Tanmoy.status_change`
+  );
+ 
+CREATE OR REPLACE TABLE `wmt-tebi.Tanmoy.cumulative_counts` as
+  (
+    SELECT
+    DEVICE_SERIAL_NUMBER
+    , calendar_date
+    , total_distance_travelled
+    , below_headcount
+    , start_new_count
+    , sum (start_new_count) over (partition by DEVICE_SERIAL_NUMBER order by calendar_date) as periods
+    from `wmt-tebi.Tanmoy.reset_flags`
+  );
+ 
+CREATE OR REPLACE TABLE `wmt-tebi.Tanmoy.vehicle_current_period` as
+  (
+    select
+      DEVICE_SERIAL_NUMBER
+      , below_headcount
+      , case when periods = max (periods) over (partition by DEVICE_SERIAL_NUMBER) then 1 else 0 end as current_period
+    from`wmt-tebi.Tanmoy.cumulative_counts`
+  );
+ 
+CREATE OR REPLACE TABLE `wmt-tebi.Tanmoy.vehicle_OOS` as
+select
+  DEVICE_SERIAL_NUMBER
+  , sum (case when current_period = 1 and below_headcount = 1 then 1 else 0 end) as OOS
+from  `wmt-tebi.Tanmoy.vehicle_current_period`
+WHERE DEVICE_SERIAL_NUMBER IN (SELECT SERIAL_NUMBER FROM `wmt-tebi.Tanmoy.InHome_device_list`)
+group by DEVICE_SERIAL_NUMBER;
+
+---Geotab tatus report
+CREATE OR REPLACE TABLE `wmt-tebi.Tanmoy.geotab_status` AS 
+SELECT 
+SERIAL_NUMBER, 
+OOS,
+CASE WHEN DATE(ACTIVE_FROM)<=CURRENT_DATE AND DATE(ACTIVE_TO)>=CURRENT_DATE THEN "ACTIVE" ELSE "INACTIVE" END STATUS
+FROM `wmt-edw-prod.US_SUPPLY_CHAIN_SCT_NONCAT_VM.GEOTAB_CORPORATE_DEVICE` A
+LEFT JOIN `wmt-tebi.Tanmoy.vehicle_OOS` B
+ON A.SERIAL_NUMBER=B.DEVICE_SERIAL_NUMBER
+WHERE SERIAL_NUMBER IN (SELECT SERIAL_NUMBER FROM `wmt-tebi.Tanmoy.InHome_device_list`)
+
+;

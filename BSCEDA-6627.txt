@@ -1,0 +1,700 @@
+CREATE OR REPLACE TABLE `wmt-tebi.Tanmoy.LMD_easy_return_cal` AS 
+(               
+       SELECT CDT.CAL_DT
+           , WMW.WM_WK_ID
+           , CASE WHEN WMW.WM_WK_NBR_OF_YR_NBR < 10
+                THEN EXTRACT(YEAR FROM CDT.WM_YR_BEG_DT) ||'0'||WMW.WM_WK_NBR_OF_YR_NBR 
+                ELSE EXTRACT(YEAR FROM CDT.WM_YR_BEG_DT) ||WMW.WM_WK_NBR_OF_YR_NBR
+             END AS WM_WK 
+           , CMM.MTH_ID as CAL_MONTH_ID
+           , CASE WHEN CMM.MTH_NBR_OF_YR_NBR < 10
+                THEN EXTRACT(YEAR FROM CDT.YR_BEG_DT) ||'0'||CMM.MTH_NBR_OF_YR_NBR 
+                ELSE EXTRACT(YEAR FROM CDT.YR_BEG_DT) ||CMM.MTH_NBR_OF_YR_NBR
+             END AS CAL_MONTH
+           , WMM.WM_MTH_ID
+           , CASE WHEN WMM.WM_MTH_NBR_OF_YR_NBR < 10
+                THEN EXTRACT(YEAR FROM CDT.WM_YR_BEG_DT) ||'0'||WMM.WM_MTH_NBR_OF_YR_NBR 
+                ELSE EXTRACT(YEAR FROM CDT.WM_YR_BEG_DT) ||WMM.WM_MTH_NBR_OF_YR_NBR
+             END AS WM_MONTH
+           , WMQ.WM_QTR_ID 
+           , EXTRACT(YEAR FROM CDT.WM_YR_BEG_DT) || WMQ.WM_QTR_DESC as WM_QTR
+           , WMY.WM_YR_ID 
+           , WMY.WM_YR_DESC
+           , cdt.WM_WK_BEG_DT
+           , cdt.WM_WK_END_DT
+           , CDT.MTH_BEG_DT
+           , cdt.MTH_END_DT
+           , cdt.WM_MTH_BEG_DT
+           , cdt.WM_MTH_END_DT
+           , cdt.WM_QTR_BEG_DT
+           , cdt.WM_QTR_END_DT
+           , cdt.WM_YR_BEG_DT
+           , cdt.WM_YR_END_DT
+           , EXTRACT(YEAR FROM DATE_SUB(CURRENT_DATE("US/Pacific"), INTERVAL 1 DAY)) as curr_year
+    FROM `wmt-edw-prod.WW_CORE_DIM_DL_VM.CAL_DT` CDT 
+    INNER JOIN `wmt-edw-prod.WW_CORE_DIM_DL_VM.CAL_WM_WK` WMW ON CDT.WM_WK_ID=WMW.WM_WK_ID   
+    INNER JOIN `wmt-edw-prod.WW_CORE_DIM_DL_VM.CAL_MONTH` CMM ON CDT.CAL_MTH_ID=CMM.MTH_ID     
+    INNER JOIN `wmt-edw-prod.WW_CORE_DIM_DL_VM.CAL_WM_MONTH` WMM ON CDT.WM_MTH_ID=WMM.WM_MTH_ID
+    INNER JOIN `wmt-edw-prod.WW_CORE_DIM_DL_VM.CAL_WM_QTR` WMQ ON CDT.WM_QTR_ID=WMQ.WM_QTR_ID   
+    INNER JOIN `wmt-edw-prod.WW_CORE_DIM_DL_VM.CAL_WM_YR` WMY ON CDT.WM_YR_ID=WMY.WM_YR_ID     
+    where CDT.CAL_DT >= '2022-05-24'
+    and CDT.CAL_DT <= DATE_SUB(CURRENT_DATE("US/Pacific"), INTERVAL 1 DAY)   
+);
+ 
+-- Force completed LMDTS --
+create or replace table `wmt-tebi.Tanmoy.Easy_returns_force_complete` AS
+select * from 
+(
+ select distinct SRC_SALES_ORDER_NUM
+                ,TRIP_ID
+                ,RTN_SALES_ORDER_NBR
+                ,TASK_EVENT_ACTN_NM
+                ,DELIVERED
+                ,CANCELLED
+                ,RETURNED
+                ,case when DELIVERED is not null then 'FORCE_COMPLETE DELIVERED'
+                      when CANCELLED is not null then 'FORCE_COMPLETE CANCELLED'
+                      when RETURNED  is not null then 'FORCE_COMPLETE RETURNED'
+                 end Force_Complete
+                ,row_number() over(partition by RTN_SALES_ORDER_NBR order by TRIP_START_TS desc) r
+ from
+ (
+   select 
+      SRC_SALES_ORDER_NUM,
+      ORDER_PCKUP_PNT_ID as store_id,
+      Trip_id,
+      Carrier_nm,
+      RTN_SALES_ORDER_NBR,
+      max(CRE_TS) CRE_TS,
+      --max(CLNT_PCKUP_FROM_TZ_CD) Region, -- Using this field to convert for time zones as these SO are not flowing into any other tables yet which have org_time_zones
+      max(batch_id) Batch_id,
+      max(DATETIME(TRIP_START_TS_UTC,CLNT_PCKUP_FROM_TZ_CD)) TRIP_START_TS, 
+      max(DATETIME(TRIP_END_TS_UTC,CLNT_PCKUP_FROM_TZ_CD))   TRIP_END_TS,
+      max(DRVR_USER_ID)DRVR_USER_ID,
+      max(case when CARRIER_STS_CD =  'EP' then DATETIME(SRC_CRE_TS_UTC,CLNT_PCKUP_FROM_TZ_CD) end) ENROUTE_TO_PICKUP_TS,
+      max(case when CARRIER_STS_CD  = 'AP' then DATETIME(SRC_CRE_TS_UTC,CLNT_PCKUP_FROM_TZ_CD) end) ARRIVED_AT_PICKUP_TS,
+      MAX(case when CARRIER_STS_CD  = 'DP' then DATETIME(SRC_CRE_TS_UTC,CLNT_PCKUP_FROM_TZ_CD) end) DISPATCHED,
+      MAX(case when CARRIER_STS_CD  = 'AD' then DATETIME(SRC_CRE_TS_UTC,CLNT_PCKUP_FROM_TZ_CD) end) ARRIVED_AT_STORE,
+      MAX(case when CARRIER_STS_CD  = 'DL' then DATETIME(SRC_CRE_TS_UTC,CLNT_PCKUP_FROM_TZ_CD) end ) DELIVERED,
+      MAX(case when CARRIER_STS_CD  = 'CANCEL_REQUESTED' then DATETIME(SRC_CRE_TS_UTC,CLNT_PCKUP_FROM_TZ_CD) end ) CANCEL_REQUESTED,
+      MAX(case when CARRIER_STS_CD  = 'TASK_CANCELLED' then DATETIME(SRC_CRE_TS_UTC,CLNT_PCKUP_FROM_TZ_CD) end ) TASK_CANCELLED,
+      MAX(case when CARRIER_STS_CD  = 'RT' then DATETIME(SRC_CRE_TS_UTC,CLNT_PCKUP_FROM_TZ_CD) end ) RETURNED,
+      MAX(case when CARRIER_STS_CD  = 'COMPLETED' then DATETIME(SRC_CRE_TS_UTC,CLNT_PCKUP_FROM_TZ_CD) end ) COMPLETED,
+      MAX(case when CARRIER_STS_CD  = 'POST_COMPLETED' then DATETIME(SRC_CRE_TS_UTC,CLNT_PCKUP_FROM_TZ_CD) end ) POST_COMPLETED,
+      MAX(TASK_EVENT_ACTN_NM) TASK_EVENT_ACTN_NM,
+      MAX(EXCPT_RSN_DESC) as EXCPT_RSN_DESC,
+      MAX(case when CARRIER_STS_CD  = 'CANCELLED' then DATETIME(SRC_CRE_TS_UTC,CLNT_PCKUP_FROM_TZ_CD) end ) CANCELLED,
+      MAX(EXCPT_RSN_CD) AS EXCPT_RSN_CD  
+      FROM `wmt-edw-prod.WW_SUPPLY_CHAIN_DL_VM.LAST_MI_DLVR_TASK_CHNG_EVENT` lmdts
+      where 
+      src_cre_dt between '2022-08-01' and current_date()-1  
+      AND SRC_SALES_ORDER_NUM in (
+                                  SELECT 
+                                    DISTINCT SRC_SALES_ORDER_NUM
+                                    from `wmt-edw-prod.WW_SUPPLY_CHAIN_DL_VM.LAST_MI_DLVR_TASK_CHNG_EVENT`  
+                                where src_cre_dt between '2022-08-01' and current_date()-1
+                                      and FULFMT_TYPE_CD = 'CURBSIDE'
+                                      and ORDER_SVC_TYPE_NM = 'RETURN'
+                                      and UPPER(CARRIER_NM)  in ('ROADIE','POSTMATES','DOORDASH','THIRD_PARTY','SPARK','UBER')
+                                      and DATA_SRC_CD= 'DISPATCHER'
+                                      and TASK_EVENT_ACTN_NM = 'FORCE_COMPLETE'   -- Identifying all Force Completed ORDERS from LMDTS        
+                                    )
+        group by 1,2,3,4,5
+        order by SRC_SALES_ORDER_NUM
+)x 
+)y  where r = 1   -- Getting the latest trip for that RTN_SALES_ORDER_NBR
+;
+
+-- Spark Zones --
+
+create or replace table `wmt-tebi.Tanmoy.Easy_returns_spark_zone` as
+  SELECT
+      DISTINCT STORE_NBR,
+      DLVR_AREA_NM AS ZONE
+    FROM `wmt-edw-prod.WW_SUPPLY_CHAIN_DL_VM.LAST_MI_DLVR_STORE_HIST`
+    WHERE curr_ind = 1 ;
+
+-- Customer Canceled Orders --- 
+create or replace table `wmt-tebi.Tanmoy.Easy_returns_cx_can` AS    
+select xx.*,sz.ZONE from 
+(           
+select SALES_ORDER_NUM
+      ,CATLG_ITEM_ID
+      ,RTN_ORDER_NUM
+      ,CNCL_QTY
+      ,RTN_CRE_DT
+      ,c.WM_WK
+      ,R.RCV_STORE_ORG_CD store_id
+      ,case when CNCL_QTY = 1 then 'Customer_Canceled'
+            else 'In-Progress'
+       end Final_Status 
+      ,CAST(SUM(CAST((COALESCE(EXPC_QTY,0) - COALESCE(RCHRGD_QTY,0)) AS NUMERIC))AS FLOAT64) as Units
+from `wmt-edw-prod.WW_RTN_DL_VM.RTN_360_DTL` R left join `wmt-tebi.Tanmoy.LMD_easy_return_cal` c   -- Calender
+      on R.RTN_CRE_DT = c.CAL_DT
+where  RTN_MODE_NM='LMD'
+  and RTN_CRE_DT >= '2022-08-01'
+  and KEEP_IT_IND = 0  
+  and concat(SALES_ORDER_NUM,CATLG_ITEM_ID) not in 
+  (   --- Rtn_order_num didn't reach LMDTS and got canceled in Rtn_360 table itself 
+      select distinct concat(y.SALES_ORDER_NUM,y.CATLG_ITEM_ID) from
+      (
+      select 
+      RTN_SALES_ORDER_NBR 
+      from `wmt-edw-prod.WW_SUPPLY_CHAIN_DL_VM.LAST_MI_DLVR_TASK_CHNG_EVENT` lmdts 
+      where src_cre_dt between '2022-08-01' and current_date()-1
+        and FULFMT_TYPE_CD = 'CURBSIDE'
+        and ORDER_SVC_TYPE_NM = 'RETURN'
+        and UPPER(CARRIER_NM)  in ('ROADIE','POSTMATES','DOORDASH','THIRD_PARTY','SPARK','UBER')
+        and DATA_SRC_CD= 'DISPATCHER' 
+      ) x join (select SALES_ORDER_NUM,CATLG_ITEM_ID,RTN_ORDER_NUM,CNCL_QTY,KEEP_IT_IND,RTN_CRE_DT from `wmt-edw-prod.WW_RTN_DL_VM.RTN_360_DTL` where  RTN_MODE_NM='LMD' 
+      ) y on x.rtn_sales_order_nbr = y.RTN_ORDER_NUM
+  ) group by 1,2,3,4,5,6,7,8
+)xx  left join `wmt-tebi.Tanmoy.Easy_returns_spark_zone` sz on cast(xx.store_id as int) = sz.STORE_NBR 
+;
+
+ -- Non Customer Canceled -- 
+
+create or replace table `wmt-tebi.Tanmoy.Easy_returns_non_cx_can1` as
+select zz.*
+      ,f.Force_Complete
+      ,c.WM_WK
+      ,row_number() over(partition by RTN_ORDER_NUM order by zz.DELIVERED desc,TRIP_START_TS desc,ENROUTE_TO_PICKUP_TS desc, zz.TASK_CANCELLED desc ) r  -- latest trip for that return request RTN_ORDER_NUM
+  from
+      (
+      select x.*,y.trip_id ,y.Carrier_nm,y.TRIP_START_TS,y.TRIP_END_TS
+      ,y.ENROUTE_TO_PICKUP_TS
+      ,y.ARRIVED_AT_PICKUP_TS
+      ,y.DISPATCHED,y.ARRIVED_AT_STORE,y.DELIVERED,y.CANCEL_REQUESTED,y.TASK_CANCELLED,y.EXCPT_RSN_DESC,y.CANCELLED,y.EXCPT_RSN_CD,y.store_id,
+      Extract (DATE from(COALESCE(y.DLVR_SLOT_START_TS_TZ, y.Slot_From_TS,y.ORDER_DROP_TS,y.CAR_REQ_TS_TZ,y.ENROUTE_TO_PICKUP_TS,y.ARRIVED_AT_PICKUP_TS, 
+		y.ENR_DROPOFF_TS_TZ,y.ARRIVED_AT_STORE,y.CARRIER_DLVR_TS_TZ,x.RTN_CRE_DT))) AS Slot_DT 
+       from
+      (
+        select SALES_ORDER_NUM,RTN_ORDER_NUM,CATLG_ITEM_ID,CNCL_QTY,KEEP_IT_IND,RTN_CRE_DT,CAST(SUM(CAST((COALESCE(EXPC_QTY,0) - COALESCE(RCHRGD_QTY,0)) AS NUMERIC))AS FLOAT64) as Units	 
+            from  `wmt-edw-prod.WW_RTN_DL_VM.RTN_360_DTL` 
+            where  RTN_MODE_NM='LMD' 
+            and RTN_CRE_DT >= '2022-08-01'
+            and KEEP_IT_IND = 0
+            and concat(SALES_ORDER_NUM,CATLG_ITEM_ID) not in 
+            (select concat(SALES_ORDER_NUM,CATLG_ITEM_ID) 
+            from `wmt-tebi.Tanmoy.Easy_returns_cx_can`)
+            group by 1,2,3,4,5,6
+    ) x left join 
+  ( select 
+      SRC_SALES_ORDER_NUM,
+      ORDER_PCKUP_PNT_ID as store_id,
+      Trip_id,
+      Carrier_nm,
+      RTN_SALES_ORDER_NBR,
+      max(CRE_TS) CRE_TS,
+      --max(CLNT_PCKUP_FROM_TZ_CD) Region, -- Using this field to convert for time zones as these SO are not flowing into any other tables yet which have org_time_zones
+      max(batch_id) Batch_id,
+      max(DATETIME(TRIP_START_TS_UTC,CLNT_PCKUP_FROM_TZ_CD)) TRIP_START_TS, 
+      max(DATETIME(TRIP_END_TS_UTC,CLNT_PCKUP_FROM_TZ_CD))   TRIP_END_TS,
+      max(DRVR_USER_ID)DRVR_USER_ID,
+      max(case when CARRIER_STS_CD =  'EP' then DATETIME(SRC_CRE_TS_UTC,CLNT_PCKUP_FROM_TZ_CD) end) ENROUTE_TO_PICKUP_TS,
+      max(case when CARRIER_STS_CD  = 'AP' then DATETIME(SRC_CRE_TS_UTC,CLNT_PCKUP_FROM_TZ_CD) end) ARRIVED_AT_PICKUP_TS,
+      MAX(case when CARRIER_STS_CD  = 'DP' then DATETIME(SRC_CRE_TS_UTC,CLNT_PCKUP_FROM_TZ_CD) end) DISPATCHED,
+      MAX(case when CARRIER_STS_CD  = 'AD' then DATETIME(SRC_CRE_TS_UTC,CLNT_PCKUP_FROM_TZ_CD) end) ARRIVED_AT_STORE,
+      MAX(case when CARRIER_STS_CD  = 'DL' then DATETIME(SRC_CRE_TS_UTC,CLNT_PCKUP_FROM_TZ_CD) end ) DELIVERED,
+      MAX(case when CARRIER_STS_CD  = 'CANCEL_REQUESTED' then DATETIME(SRC_CRE_TS_UTC,CLNT_PCKUP_FROM_TZ_CD) end ) CANCEL_REQUESTED,
+      MAX(case when CARRIER_STS_CD  = 'TASK_CANCELLED' then DATETIME(SRC_CRE_TS_UTC,CLNT_PCKUP_FROM_TZ_CD) end ) TASK_CANCELLED,
+      MAX(EXCPT_RSN_DESC) as EXCPT_RSN_DESC,
+      MAX(case when CARRIER_STS_CD  = 'CANCELLED' then DATETIME(SRC_CRE_TS_UTC,CLNT_PCKUP_FROM_TZ_CD) end ) CANCELLED,
+      MAX(EXCPT_RSN_CD) AS EXCPT_RSN_CD,
+
+      MAX(DATETIME(DLVR_SLOT_START_TS_UTC,CLNT_PCKUP_FROM_TZ_CD)) AS DLVR_SLOT_START_TS_TZ,
+      max(case when CARRIER_STS_CD =  'ED' then DATETIME(SRC_CRE_TS_UTC,CLNT_PCKUP_FROM_TZ_CD) end) ENR_DROPOFF_TS_TZ,
+      max(case when UPPER(carrier_sts_cd) in ('CR','DRIVER_ASSIGNED') then DATETIME(SRC_CRE_TS_UTC,CLNT_PCKUP_FROM_TZ_CD) end) CAR_REQ_TS_TZ,
+      MAX(DATETIME(SOL.SLOT_START_TS_UTC,CLNT_PCKUP_FROM_TZ_CD)) AS Slot_From_TS,
+      MIN(DATETIME(SRC_CRE_TS_UTC,CLNT_PCKUP_FROM_TZ_CD)) AS ORDER_DROP_TS,
+      MAX(case when UPPER(carrier_sts_cd) IN ('DL','DLU','POST_DELIVERED') then DATETIME(SRC_CRE_TS_UTC,CLNT_PCKUP_FROM_TZ_CD) end ) CARRIER_DLVR_TS_TZ,
+        from `wmt-edw-prod.WW_SUPPLY_CHAIN_DL_VM.LAST_MI_DLVR_TASK_CHNG_EVENT` lmdts 
+        LEFT JOIN `wmt-driver-insights.LMD_DA.VOL_SALES_ORDER_LINE_V2` SOL 
+    ON lmdts.SRC_SALES_ORDER_NUM = SOL.SALES_ORDER_NUM
+    where src_cre_dt between '2022-08-01' and current_date()-1
+      and FULFMT_TYPE_CD = 'CURBSIDE'
+      and ORDER_SVC_TYPE_NM = 'RETURN'
+      and UPPER(CARRIER_NM)  in ('ROADIE','POSTMATES','DOORDASH','THIRD_PARTY','SPARK','UBER')
+      and DATA_SRC_CD= 'DISPATCHER'
+      and RTN_SALES_ORDER_NBR not in ('153382923543167835') -- Bad Data all trip_ts are same for this trip when checked on 10/13, if this changes include this
+      group by 1,2,3,4,5
+  ) y on x.SALES_ORDER_NUM=y.SRC_SALES_ORDER_NUM and x.RTN_ORDER_NUM=y.RTN_SALES_ORDER_NBR
+  -- and x.rtn_order_num = y.rtn_sales_order_nbr
+    ) zz left join `wmt-tebi.Tanmoy.Easy_returns_force_complete` f on f.SRC_SALES_ORDER_NUM = zz.sales_order_num and f.TRIP_ID = zz.trip_id
+         left join `wmt-tebi.Tanmoy.LMD_easy_return_cal` c on c.CAL_DT = zz.Slot_dt -- zz.RTN_CRE_DT
+    order by SALES_ORDER_NUM,CATLG_ITEM_ID,RTN_CRE_DT;
+
+
+-- Cost Incurred for each trip -- 
+
+/* -- New table Proposed by Shivani Achrekar below 
+create or replace table `wmt-edw-sandbox.LMD_DA.Easy_returns_cost` as
+select SALES_ORDER_NUM
+      ,TRIP_ID
+      ,ifnull(ORDER_PAYMENT,0)  + ifnull(BONUS_PAYMENT,0) + ifnull(INCENTIVE_AMT,0) 
+            + ifnull(SHOPPER_INCENTIVE,0) + ifnull(ACQ_INCENTIVE,0)+ ifnull(RFR_INCENTIVE,0) 
+            + ifnull(EASY_RTNS_PARTIAL_AMT,0) + ifnull(EASY_RTNS_AMT,0) as Cost
+       from  `wmt-edw-sandbox.LMD_DA.SPARK_EASY_RETURNS`;
+*/      
+create or replace table `wmt-tebi.Tanmoy.Easy_returns_cost` as
+select SALES_ORDER_NUM,
+       TRIP_ID,
+      COALESCE((ESTIMATED_DISTANCE_AMT+ DELIVERED_EXTRA_AMT+ WAIT_TIME_AMT+ 
+      RETURNED_AMT+ BLANK_BONUS_AMT+ ARRIVED_AT_STORE_AMT+BASE_PRICE_CAPPING_AMT+
+      DELIVERED_OR_ATTEMPTED_AMT+ORDER_SIZE_AMT+COALESCE(ML_BASE_PRICE_AMT,0)
+      +COALESCE(SHOPPER_EXPRESS,0)
+      +COALESCE(ML_BASE_ADJUSTMENT,0)
+      +COALESCE(EXTRA_HEAVY_ORDER_AMT,0)
+      +COALESCE(HEAVY_ORDER_AMT,0)
+      +COALESCE(APARTMENT_PYMT_AMT,0)
+      +COALESCE(EASY_RTNS_AMT,0)
+      +COALESCE(EASY_RTNS_PARTIAL_AMT,0)
+      +COALESCE(ERNGS_ADJ_AMT,0))
+      ,(ORDER_PAYMENT+COALESCE(ERNGS_ADJ_AMT,0)),0) AS Cost
+      from `wmt-edw-sandbox.LMD_DA.SPARK_DELIVERY_DS_ALL_FINAL` ;
+
+
+
+ --- NPS --- 
+create or replace table `wmt-tebi.Tanmoy.Easy_returns_nps` as
+ select 
+      slot_dt,
+      cal.WM_WK,
+      count(case when rating between 0 and 6 then rating end) as detractors,
+      count(case when rating between 9 and 10 then rating end) as promoters,
+      count(rating) as Surveys
+      from(
+Select 
+distinct
+        coalesce(sl.slot_dt,rol.rtn_cre_dt) as slot_dt  
+      , rol.rtn_order_num
+      , return_comments as survey_comments
+      , site_recomd_ratg_nbr as rating
+      , rol.RCV_STORE_ORG_CD as Store,
+case when rol.rtn_inv_num is null then False else True end as Refunded,
+case when st.rtn_inv_num is not null then True else False end as Completed_Elsewhere
+FROM
+`wmt-edw-prod.WW_RTN_DL_VM.RTN_360_DTL` rol
+join `wmt-marketing-cust-journey.cust_journey_ard.dotcom_returns_survey_new` c on c.sales_order_num=rol.sales_order_num and c.sales_order_line_num = rol.SALES_ORDER_LINE_NUM
+Left outer join `wmt-edw-prod.WW_RTN_DL_VM.RTN_360_DTL` st on st.SALES_ORDER_NUM = rol.SALES_ORDER_NUM and rol.SALES_ORDER_LINE_NUM = st.SALES_ORDER_LINE_NUM and rol.SHPMNT_NUM=st.SHPMNT_NUM and coalesce(st.FULFILR_LINE_ID, 1)=coalesce(rol.FULFILR_LINE_ID, 1) and st.expc_qty<>0 and st.rtn_inv_num is not null and st.keep_it_ind = 0 and st.rtn_order_num<>rol.rtn_order_num
+left join `wmt-tebi.Tanmoy.Easy_returns_non_cx_can1` sl on sl.SALES_ORDER_NUM=rol.SALES_ORDER_NUM and sl.RTN_ORDER_NUM=rol.RTN_ORDER_NUM
+WHERE rol.RTN_CRE_DT>'2022-08-02'
+AND rol.RTN_MODE_NM = 'LMD' #Can have RTN_MODE_NM as ‘CURB_SIDE’ or ‘LMD’
+AND rol.KEEP_IT_IND = 0
+      )x left outer join `wmt-tebi.Tanmoy.LMD_easy_return_cal` cal on x.slot_dt = cal.CAL_DT
+       group by 1,2;
+
+-- NPS Comments View--
+create or replace table `wmt-tebi.Tanmoy.Easy_returns_nps_comments` as
+select  
+         RTN_ORDER_NUM
+      ,  slot_dt  
+      ,  cal.WM_WK
+      ,  sales_order_num
+      ,  survey_comments
+      ,  rating
+      ,  Store
+      ,  Refunded
+      ,  Completed_Elsewhere from(
+    Select  
+            distinct 
+            rol.RTN_ORDER_NUM
+          ,  coalesce(sl.slot_dt,rol.rtn_cre_dt) as slot_dt  
+          , rol.sales_order_num
+          , return_comments as survey_comments
+          , site_recomd_ratg_nbr as rating
+          , rol.RCV_STORE_ORG_CD as Store,
+    case when rol.rtn_inv_num is null then False else True end as Refunded,
+    case when st.rtn_inv_num is not null then True else False end as Completed_Elsewhere
+    FROM
+    `wmt-edw-prod.WW_RTN_DL_VM.RTN_360_DTL` rol
+    join `wmt-marketing-cust-journey.cust_journey_ard.dotcom_returns_survey_new` c on c.sales_order_num=rol.sales_order_num and c.sales_order_line_num = rol.SALES_ORDER_LINE_NUM
+    Left outer join`wmt-edw-prod.WW_RTN_DL_VM.RTN_360_DTL` st on st.SALES_ORDER_NUM = rol.SALES_ORDER_NUM and rol.SALES_ORDER_LINE_NUM = st.SALES_ORDER_LINE_NUM and rol.SHPMNT_NUM=st.SHPMNT_NUM and coalesce(st.FULFILR_LINE_ID, 1)=coalesce(rol.FULFILR_LINE_ID, 1) and st.expc_qty<>0 and st.rtn_inv_num is not null and st.keep_it_ind = 0 and st.rtn_order_num<>rol.rtn_order_num
+    left join `wmt-tebi.Tanmoy.Easy_returns_non_cx_can1` sl on sl.SALES_ORDER_NUM=rol.SALES_ORDER_NUM and sl.RTN_ORDER_NUM=rol.RTN_ORDER_NUM
+    WHERE rol.RTN_CRE_DT>'2022-08-02'
+    AND rol.RTN_MODE_NM = 'LMD' #Can have RTN_MODE_NM as ‘CURB_SIDE’ or ‘LMD’
+    AND rol.KEEP_IT_IND = 0
+      ) x left outer join `wmt-tebi.Tanmoy.LMD_easy_return_cal` cal on slot_dt = cal.CAL_DT
+;
+
+ 
+create or replace table `wmt-tebi.Tanmoy.Easy_returns_non_cx_can1_1` as
+select distinct z.*
+      ,case when DISPATCHED is not null and final_status in ('Delivered','FORCE_COMPLETE DELIVERED') then 0
+            when (DISPATCHED is not null and final_status not in ('Delivered','FORCE_COMPLETE DELIVERED','FORCE_COMPLETE RETURNED')) or final_status = 'Force_Complete Missing' then 1
+       end missing_order_ind 
+      ,unit_price 
+      ,c.cost
+      ,m.Est_miles
+      ,m.store_city
+      ,m.store_state
+      ,m.customer_city
+      ,m.customer_state
+  from
+(
+  select 
+  CNCL_QTY
+ ,RTN_ORDER_NUM
+ ,y.CATLG_ITEM_ID
+ ,RTN_CRE_DT
+ ,y.SALES_ORDER_NUM
+ ,trip_id
+ ,Carrier_nm
+ ,TRIP_START_TS
+ ,TRIP_END_TS
+ ,ENROUTE_TO_PICKUP_TS
+ ,ARRIVED_AT_PICKUP_TS
+ ,DISPATCHED
+ ,ARRIVED_AT_STORE,DELIVERED
+ ,CANCEL_REQUESTED
+ ,TASK_CANCELLED
+ ,EXCPT_RSN_DESC
+ ,CANCELLED
+ ,EXCPT_RSN_CD
+ ,Force_Complete
+ ,Delivered_Cat
+ ,no_driver
+ ,EXCPT_Cat
+ ,Cust_Can_Cat
+ ,On_time_pick_ind
+ ,Total_Drive_Time
+ ,Drop_Time
+ ,store_id
+ ,Doorstep_Time
+ ,Slot_dt
+ ,Units
+ ,concat(y.SALES_ORDER_NUM,RTN_ORDER_NUM) so_rtn,WM_WK,case when extract(hour from TRIP_START_TS) between 1 and 12 then 'AM' else 'PM' end Hour
+ ,case 
+      when Final_Status is null then 'In-Progress'
+      else Final_Status
+    end Final_Status      
+from
+(
+select *
+       ,COALESCE(Force_Complete,Delivered_Cat,EXCPT_cat,Cust_Can_Cat,No_driver) Final_Status 
+      from 
+      (
+      select *, 
+              case when ARRIVED_AT_PICKUP_TS is not null and ARRIVED_AT_PICKUP_TS<= TRIP_END_TS then  1
+                    when ARRIVED_AT_PICKUP_TS is not null and ARRIVED_AT_PICKUP_TS > TRIP_END_TS then  0 
+                    end On_time_pick_ind
+              ,case when ENROUTE_TO_PICKUP_TS is not null and DELIVERED is not null then  DATETIME_DIFF(DELIVERED, ENROUTE_TO_PICKUP_TS  , MINUTE) end Total_Drive_Time
+              ,case when DELIVERED is not null and ARRIVED_AT_STORE is not null then DATETIME_DIFF(DELIVERED,ARRIVED_AT_STORE,MINUTE) end Drop_Time
+              ,case when ARRIVED_AT_PICKUP_TS is not null and DISPATCHED is not null then DATETIME_DIFF(DISPATCHED,ARRIVED_AT_PICKUP_TS, MINUTE) end Doorstep_Time
+              ,case when DELIVERED is not null then 'Delivered'
+                else null
+                end Delivered_Cat
+              ,case when ENROUTE_TO_PICKUP_TS is null and ARRIVED_AT_PICKUP_TS	 is null and DISPATCHED is null and ARRIVED_AT_STORE is null and DELIVERED is null and TASK_CANCELLED is null
+                          then 'Unassigned' 
+                end No_driver
+              ,case when EXCPT_RSN_CD in ('LMD2022','LMD101','LMD1601') then 'Customer_Canceled'
+                    when EXCPT_RSN_CD in ('LMD109','LMD115','LMD117','LMD119','LMD130','LMD1302','LMD131','LMD1501','LMD1502','LMD1503',
+                                          'LMD1602','LMD1603','LMD1604','LMD1605','LMD1711','LMD204','LMD301','LMD303','LMD305','LMD312','LMD313','LMD400','LMD404','LMD409','LMD421','LMD427',
+                                          'LMD428','LMD429','LMD432','LMD435','LMD436','LMD437','LMD438','LMD439','LMD701','LMD702','LMD703','LMD715','LMD716','3P001'
+                                          ) then 'Driver Cancelation'  
+                    when EXCPT_RSN_CD in ('LMD203','LMD503') then 'Driver Supply'
+                    when EXCPT_RSN_CD in ('LMD106','LMD2010','LMD302','LMD304','LMD406','LMD504','LMD505','LMD620','LMD714') then 'Store_Cancelation'
+                    when EXCPT_RSN_CD in ('FMS0000','LMD1001','LMD1502','LMD1503','LMD151','LMD1599','LMD1599','LMD1712','LMD407','LMD107') then 'Tech'  
+                    when EXCPT_RSN_CD in ('LMD1722','LMD1721') and DELIVERED is null then 'Item_Missing'
+                    when EXCPT_RSN_CD is not null then 'Exception'
+                end EXCPT_Cat,
+                case when CNCL_QTY = 1 then 'Customer_Canceled' 
+                      else null 
+                end Cust_Can_Cat       
+                from `wmt-tebi.Tanmoy.Easy_returns_non_cx_can1` where r = 1  -- Latest trip only 
+      ) x   
+) y 
+) z
+ left join
+(
+  select distinct  sales_order_num
+                  ,CATLG_ITEM_ID
+                  ,ifnull(unit_price,0) unit_price 
+                   from `wmt-edw-prod.WW_SUPPLY_CHAIN_DL_VM.FULFMT_360` -- Prices of the product vary by date hence joined using SO to find price of item on that day 
+) zz on z.CATLG_ITEM_ID = zz.CATLG_ITEM_ID and z.SALES_ORDER_NUM = zz.SALES_ORDER_NUM 
+left join 
+(
+   select * from `wmt-tebi.Tanmoy.Easy_returns_cost` 
+) c on z.sales_order_num = c.sales_order_num and c.trip_id = z.trip_id
+left join  `wmt-tebi.Tanmoy.Easy_returns_miles` m 
+    on m.src_SALES_ORDER_NUM = z.SALES_ORDER_NUM and m.RTN_SALES_ORDER_NBR = z.RTN_ORDER_NUM and m.TRIP_ID = z.trip_id
+ ;
+
+-- All Refunds on Orders ---- 
+create or replace table  `wmt-tebi.Tanmoy.Easy_return_refunds` as
+select distinct 
+       rol.rtn_order_num, 
+       rol.CATLG_ITEM_ID,
+       case when rol.rtn_inv_num is null then False else True end as Refunded,
+       case when st.rtn_inv_num is not null then True else False end as Completed_Elsewhere
+       FROM `wmt-edw-prod.WW_RTN_DL_VM.RTN_360_DTL`  rol join `wmt-tebi.Tanmoy.Easy_returns_non_cx_can1_1` can
+                      on can.SALES_ORDER_NUM  =  rol.sales_order_num and can.RTN_ORDER_NUM = rol.rtn_order_num and can.CATLG_ITEM_ID = rol.CATLG_ITEM_ID
+       Left join `wmt-edw-prod.WW_RTN_DL_VM.RTN_360_DTL` st on st.SALES_ORDER_NUM = rol.SALES_ORDER_NUM and rol.SALES_ORDER_LINE_NUM = st.SALES_ORDER_LINE_NUM
+                 and rol.SHPMNT_NUM=st.SHPMNT_NUM and coalesce(st.FULFILR_LINE_ID, 1)=coalesce(rol.FULFILR_LINE_ID, 1) and st.expc_qty<>0 
+                 and st.rtn_inv_num is not null and st.keep_it_ind = 0 and st.rtn_order_num<>rol.rtn_order_num
+WHERE rol.RTN_CRE_DT > '2022-08-02'
+AND rol.RTN_MODE_NM = 'LMD' #Can have RTN_MODE_NM as ‘CURB_SIDE’ or ‘LMD’
+AND rol.KEEP_IT_IND = 0; 
+
+create or replace table `wmt-tebi.Tanmoy.Easy_returns_non_cx_can2` as
+select can.*
+      ,ref.Refunded
+      ,ref.Completed_Elsewhere
+      ,sz.ZONE
+     from `wmt-tebi.Tanmoy.Easy_returns_non_cx_can1_1` can left join `wmt-tebi.Tanmoy.Easy_return_refunds` ref 
+                            on can.RTN_ORDER_NUM = ref.rtn_order_num and can.CATLG_ITEM_ID = ref.CATLG_ITEM_ID 
+         left join `wmt-tebi.Tanmoy.Easy_returns_spark_zone` sz on sz.STORE_NBR = cast(can.store_id as int)
+           ;
+
+-- Miles To Travel --
+
+create or replace table `wmt-tebi.Tanmoy.Easy_returns_miles` as
+select * from (
+select 
+       distinct 
+       SRC_SALES_ORDER_NUM  
+      ,RTN_SALES_ORDER_NBR
+      ,upper(sh.CITY_NM) as Store_City
+      ,upper(sh.ST_CD) as Store_State
+      ,TRIP_ID
+      ,ORDER_PCKUP_PNT_ID
+      ,max(upper(SCAN_CITY)) Customer_City
+      ,max(upper(SCAN_ST)) Customer_State
+      ,min(ESTMTD_MILE_BY_APPLN) Est_miles 
+         from `wmt-edw-prod.WW_SUPPLY_CHAIN_DL_VM.LAST_MI_DLVR_TASK_CHNG_EVENT` lmdts 
+            left join  `wmt-edw-prod.WW_SUPPLY_CHAIN_DL_VM.LAST_MI_DLVR_STORE_HIST` sh on cast(lmdts.ORDER_PCKUP_PNT_ID as int) = sh.STORE_NBR
+ where SRC_CRE_DT > '2022-08-01'
+        and RTN_SALES_ORDER_NBR in (select RTN_ORDER_NUM from `wmt-tebi.Tanmoy.Easy_returns_non_cx_can2`)
+        and CURR_IND = 1
+ group by 1,2,3,4,5,6
+          ) x
+   where x.Est_miles < 16 ; -- Removing any trips that might not be usual;
+
+
+create or replace table  `wmt-tebi.Tanmoy.Easy_returns_tot` as
+select x.*,
+          case when final_status in ('Customer_Canceled','Driver Cancelation','FORCE_COMPLETE CANCELLED','Store_Cancelation') then 'Cancelation'
+               when final_status in ('In-Progress') then 'In-Progress' 
+               when final_status in ('Delivered','FORCE_COMPLETE DELIVERED') then 'Delivered'
+               when final_status in ('Unassigned') then 'Unassigned'
+               when final_status in ('FORCE_COMPLETE RETURNED') then 'FORCE_COMPLETE RETURNED'
+               when final_status in ('Force_Complete Missing') then 'Force_Complete Missing'
+               else final_status end Category
+from
+(
+ select SALES_ORDER_NUM,RTN_ORDER_NUM	,CASE WHEN RTN_ORDER_NUM IS NOT NULL THEN "1" ELSE NULL END AS trip_id,Final_Status,CATLG_ITEM_ID,store_id, Units,
+ concat(SALES_ORDER_NUM,RTN_ORDER_NUM) as So_Rtn,RTN_CRE_DT as Slot_dt,WM_WK from `wmt-tebi.Tanmoy.Easy_returns_cx_can`  
+ union distinct
+ select distinct SALES_ORDER_NUM, RTN_ORDER_NUM,TRIP_ID,Final_Status,CATLG_ITEM_ID,store_id,Units,
+ concat(SALES_ORDER_NUM,trip_id) as So_Rtn,slot_dt,WM_WK from `wmt-tebi.Tanmoy.Easy_returns_non_cx_can2`
+) x  
+ ;
+
+
+create or replace table `wmt-tebi.Tanmoy.Easy_returns_active_live_stores` as -- Creating this to account active/live stores as we need to club dispatcher+non dispatcher requests
+select * from
+(
+select SALES_ORDER_NUM,CATLG_ITEM_ID,RTN_ORDER_NUM,CNCL_QTY,RTN_CRE_DT as Slot_dt, WM_WK,store_id,Final_Status from `wmt-tebi.Tanmoy.Easy_returns_cx_can`   
+union all
+select SALES_ORDER_NUM,CATLG_ITEM_ID,RTN_ORDER_NUM,CNCL_QTY,Slot_dt, WM_WK,store_id,Final_Status from `wmt-tebi.Tanmoy.Easy_returns_non_cx_can2`  
+) x;
+
+ 
+-- Orders that are supposed to be refunded --
+/*
+creating the below table for Chris Conte, CC creating a dash on how many of these have pending refunds 
+ */
+
+ create or replace table `wmt-tebi.Tanmoy.nm_Easy_Returns_refund_inv` as
+ select distinct 
+       RTN_ORDER_NUM,
+       CATLG_ITEM_ID,
+       SALES_ORDER_NUM,
+       ENROUTE_TO_PICKUP_TS,
+       ARRIVED_AT_PICKUP_TS,
+       DISPATCHED,
+       ARRIVED_AT_STORE,
+       DELIVERED,
+       missing_order_ind,
+       Final_Status
+       from `wmt-tebi.Tanmoy.Easy_returns_non_cx_can2`   -- Table from LMD that carries LMD statuses and TimeStamps for refrences, Nitish owns this
+       where Final_Status in ('Delivered','FORCE_COMPLETE RETURNED','FORCE_COMPLETE DELIVERED','Force_Complete Missing')
+             or missing_order_ind = 1
+             ;
+      
+
+
+/* REFUND INVESTIGATION SCRIPT
+create or replace table `wmt-edw-sandbox.LMD_DA.Easy_Returns_Refund_types` as  -- CHRIS OWNS THIS
+Select
+distinct
+rol.sales_order_num,
+rol.sales_order_line_num,
+rol.rtn_order_num,
+rol.RTN_LINE_NUM,
+rol.RTN_CRE_DT,
+rol.cust_id,
+rol.RCV_STORE_ORG_CD as store,
+coalesce(CNCL_QTY, rol.EXPC_QTY) units,
+coalesce(CNCL_QTY, rol.EXPC_QTY)  * rol.UNIT_PRICE as dollars,
+case when rol.rtn_inv_num is not null then 'Refunded' else NULL end Refunded,
+case when st.RTN_INV_NUM is not NULL then 'Refunded Elsewhere' else NULL end Refunded_Elsewhere,
+case when mr.sales_order_num is not NULL then 'Manually Refunded' else NULL end Manually_Refunded,
+TOT_RFND_CHRG_AMT*-1 as appeasement_amt
+FROM wmt-edw-prod.WW_GEC_VM.RTN_360_DTL rol
+Left outer join
+(Select distinct  rtn_inv_num, rtn_order_num, sales_order_num, sales_order_line_num, shpmnt_num, FULFILR_LINE_ID from wmt-edw-prod.WW_GEC_VM.RTN_360_DTL where expc_qty<>0 and rtn_inv_num is not null) st on st.SALES_ORDER_NUM = rol.SALES_ORDER_NUM and rol.SALES_ORDER_LINE_NUM = st.SALES_ORDER_LINE_NUM and rol.SHPMNT_NUM=st.SHPMNT_NUM and coalesce(st.FULFILR_LINE_ID, 1)=coalesce(rol.FULFILR_LINE_ID, 1) and st.rtn_order_num<>rol.rtn_order_num
+left outer join wmt-edw-prod.WW_GEC_VM.FIN_RFND_SALES RFND on rfnd.EVENT_DT BETWEEN '2022-08-01' AND CURRENT_DATE
+AND rfnd.RFND_TYPE_ID IN (7,9,11,13,14,21,26) and rfnd.sales_order_num=rol.sales_order_num and rfnd.sales_order_line_num=rol.sales_order_line_num
+left outer join wmt-edw-prod.WW_GEC_VM.ORDER_NOTES_INSTRUCTION  mr on mr.sales_order_num = rol.sales_order_num and ORDER_PLACED_DT >= '2022-01-01' and UPPER(NOTES_INSTR_TXT) LIKE '%REFUNDED%THROUGH%BCTRAN%'
+WHERE ITEM_EXPC_BK_IND = 1
+and rol.expc_qty!=0
+AND rol.RTN_MODE_NM = 'LMD'
+AND rol.KEEP_IT_IND = 0
+;
+
+create or replace table `wmt-edw-sandbox.LMD_DA.Easy_Returns_refund_inv` as
+  select
+       x.SALES_ORDER_NUM as LMD_SALES_ORDER_NUM,
+       concat(x.RTN_ORDER_NUM,',') as LMD_RTN_ORDER_NUM,
+       x.CATLG_ITEM_ID as LMD_CATLG_ITEM_ID,
+       x.ENROUTE_TO_PICKUP_TS as LMD_ENROUTE_TO_PICKUP_TS,
+       x.ARRIVED_AT_PICKUP_TS as LMD_ARRIVED_AT_PICKUP_TS,
+       x.DISPATCHED as LMD_DISPATCHED,
+       x.ARRIVED_AT_STORE as LMD_ARRIVED_AT_STORE,
+       x.DELIVERED as LMD_DELIVERED,
+       refund.sales_order_line_num,
+       refund.RTN_LINE_NUM,
+       refund.RTN_CRE_DT,
+       refund.cust_id,
+       refund.store,
+       refund.units,
+       refund.dollars,
+       refund.Refunded,
+       refund.Refunded_Elsewhere,
+       refund.Manually_Refunded,
+       refund.appeasement_amt,
+       x.Final_Status as LMD_Final_Status,
+       x.missing_order_ind as LMD_missing_order_ind
+   from (
+ select distinct
+       RTN_ORDER_NUM,
+       CATLG_ITEM_ID,
+       SALES_ORDER_NUM,
+       ENROUTE_TO_PICKUP_TS,
+       ARRIVED_AT_PICKUP_TS,
+       DISPATCHED,
+       ARRIVED_AT_STORE,
+       DELIVERED,
+       missing_order_ind,
+       Final_Status
+       from `wmt-edw-sandbox.LMD_DA.Easy_returns_non_cx_can2`   -- Table from LMD that carries LMD statuses and TimeStamps for refrences, Nitish owns this
+       where Final_Status in ('Delivered','FORCE_COMPLETE RETURNED','FORCE_COMPLETE DELIVERED','Force_Complete Missing')
+            or missing_order_ind = 1
+        ) x left join `wmt-edw-sandbox.LMD_DA.Easy_Returns_Refund_types` refund
+           on x.RTN_ORDER_NUM = refund.rtn_order_num
+            and x.SALES_ORDER_NUM = refund.sales_order_num
+    where Refunded is null and Refunded_Elsewhere is null and Manually_Refunded is null -- Picking only those that were not refunded in anyway 
+           order by x.RTN_ORDER_NUM,sales_order_line_num ;  
+
+
+-- Previous Categorization 
+
+create or replace table `wmt-edw-sandbox.LMD_DA.Easy_returns_non_cx_can1_1` as
+select distinct z.*
+      ,case when DISPATCHED is not null and final_status in ('Delivered','FORCE_COMPLETE DELIVERED') then 0
+            when (DISPATCHED is not null and final_status not in ('Delivered','FORCE_COMPLETE DELIVERED','FORCE_COMPLETE RETURNED')) or final_status = 'Force_Complete Missing' then 1
+       end missing_order_ind 
+      ,unit_price 
+      ,c.cost
+      ,m.Est_miles
+      ,m.store_city
+      ,m.store_state
+      ,m.customer_city
+      ,m.customer_state
+  from
+(
+  select 
+  CNCL_QTY
+ ,RTN_ORDER_NUM
+ ,y.CATLG_ITEM_ID
+ ,RTN_CRE_DT
+ ,y.SALES_ORDER_NUM
+ ,trip_id
+ ,Carrier_nm
+ ,TRIP_START_TS
+ ,TRIP_END_TS
+ ,ENROUTE_TO_PICKUP_TS
+ ,ARRIVED_AT_PICKUP_TS
+ ,DISPATCHED
+ ,ARRIVED_AT_STORE,DELIVERED
+ ,CANCEL_REQUESTED
+ ,TASK_CANCELLED
+ ,EXCPT_RSN_DESC
+ ,CANCELLED
+ ,EXCPT_RSN_CD
+ ,Force_Complete
+ ,Delivered_Cat
+ ,no_driver
+ ,EXCPT_Cat
+ ,Cust_Can_Cat
+ ,On_time_pick_ind
+ ,Total_Drive_Time
+ ,Drop_Time
+ ,store_id
+ ,Doorstep_Time
+ ,concat(y.SALES_ORDER_NUM,RTN_ORDER_NUM) so_rtn,WM_WK,case when extract(hour from TRIP_START_TS) between 1 and 12 then 'AM' else 'PM' end Hour
+ ,case 
+      when Final_Status is null then 'In-Progress'
+      else Final_Status
+    end Final_Status      
+from
+(
+select *
+       ,COALESCE(Force_Complete_Missing,Force_Complete,Delivered_Cat,EXCPT_cat,Cust_Can_Cat,No_driver) Final_Status 
+      from 
+      (
+      select *, 
+              case when ARRIVED_AT_PICKUP_TS is not null and ARRIVED_AT_PICKUP_TS<= TRIP_END_TS then  1
+                    when ARRIVED_AT_PICKUP_TS is not null and ARRIVED_AT_PICKUP_TS > TRIP_END_TS then  0 
+                    end On_time_pick_ind
+              ,case when ENROUTE_TO_PICKUP_TS is not null and DELIVERED is not null then  DATETIME_DIFF(DELIVERED, ENROUTE_TO_PICKUP_TS  , MINUTE) end Total_Drive_Time
+              ,case when DELIVERED is not null and ARRIVED_AT_STORE is not null then DATETIME_DIFF(DELIVERED,ARRIVED_AT_STORE,MINUTE) end Drop_Time
+              ,case when ARRIVED_AT_PICKUP_TS is not null and DISPATCHED is not null then DATETIME_DIFF(DISPATCHED,ARRIVED_AT_PICKUP_TS, MINUTE) end Doorstep_Time
+              ,case when Force_Complete = 'Force_Complete' and EXCPT_RSN_CD in ('LMD1722','LMD1721') then 'Force_Complete Missing' end Force_Complete_Missing
+              ,case when DELIVERED is not null then 'Delivered'
+                else null
+                end Delivered_Cat
+              ,case when ENROUTE_TO_PICKUP_TS is null and ARRIVED_AT_PICKUP_TS	 is null and DISPATCHED is null and ARRIVED_AT_STORE is null and DELIVERED is null and TASK_CANCELLED is null
+                          then 'Unassigned' 
+                end No_driver
+              ,case when EXCPT_RSN_CD in ('LMD400','LMD2022') then 'Customer_Canceled'
+                    when EXCPT_RSN_CD in ('LMD1503','LMD1302','LMD1403','LMD1502','LMD1603','LMD1604'
+                                          ,'LMD714','LMD204','LMD429','LMD503','LMD305','LMD1301','LMD1501','LMD1402','LMD202','LMD201','LMD1601','LMD1602') then 'Driver Cancelation'
+                    when EXCPT_RSN_CD in ('LMD203') then 'Driver Supply'
+                    when EXCPT_RSN_CD in ('LMD512','LMD409','LMD505','LMD437','LMD507','LMD407','LMD435','LMD427') then 'Store_Cancelation'
+                    when EXCPT_RSN_CD in ('LMD1001') then 'Tech'
+                    when EXCPT_RSN_CD is not null then 'Unassigned'
+                end EXCPT_Cat,
+                case when CNCL_QTY = 1 then 'Customer_Canceled' 
+                      else null 
+                end Cust_Can_Cat       
+                from `wmt-edw-sandbox.LMD_DA.Easy_returns_non_cx_can1` where r = 1  -- Latest trip only 
+      ) x   
+) y 
+) z
+ left join
+(
+  select distinct sales_order_num
+                  ,CATLG_ITEM_ID
+                  ,ifnull(unit_price,0) unit_price 
+                   from `wmt-edw-prod`.WW_GEC_VM.FULFMT_360 -- Prices of the product vary by date hence joined using SO to find price of item on that day 
+) zz on z.CATLG_ITEM_ID = zz.CATLG_ITEM_ID and z.SALES_ORDER_NUM = zz.SALES_ORDER_NUM 
+left join 
+(
+   select * from `wmt-edw-sandbox.LMD_DA.Easy_returns_cost` 
+) c on z.sales_order_num = c.sales_order_num and c.trip_id = z.trip_id
+left join  `wmt-edw-sandbox.LMD_DA.Easy_returns_miles` m 
+    on m.src_SALES_ORDER_NUM = z.SALES_ORDER_NUM and m.RTN_SALES_ORDER_NBR = z.RTN_ORDER_NUM and m.TRIP_ID = z.trip_id
+ ;
+*/
